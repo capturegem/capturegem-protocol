@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{TokenAccount, TokenInterface};
+use anchor_spl::token_interface::TokenInterface;
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
@@ -63,7 +63,7 @@ pub fn buy_access_token(ctx: Context<BuyAccess>) -> Result<()> {
     // For now, we'll use a mock price - in production this would query the oracle_feed account
     let collection_token_price_usd_cents = get_collection_token_price(&ctx.accounts.oracle_feed)?;
     
-    if collection_token_price_usd_cents <= 0 {
+    if collection_token_price_usd_cents == 0 {
         return err!(ProtocolError::InvalidOraclePrice);
     }
 
@@ -112,7 +112,7 @@ pub fn buy_access_token(ctx: Context<BuyAccess>) -> Result<()> {
 
 /// Helper function to get Collection Token price from oracle
 /// Supports both Pyth and Switchboard oracles
-fn get_collection_token_price(oracle_feed: &AccountInfo) -> Result<u64> {
+fn get_collection_token_price(_oracle_feed: &AccountInfo) -> Result<u64> {
     // Try to determine oracle type by checking account data
     // In production, you would:
     // 1. Check if it's a Pyth price feed account

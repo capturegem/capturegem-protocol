@@ -72,7 +72,7 @@ pub fn upload_video(
         .ok_or(ProtocolError::MathOverflow)?;
 
     // Initialize or update PerformerEscrow if performer_wallet is provided
-    if let Some(performer) = ctx.accounts.performer_wallet.as_ref() {
+    if let Some(_performer) = ctx.accounts.performer_wallet.as_ref() {
         // In production: Initialize PerformerEscrow PDA if it doesn't exist
         // For now, we just track it in the video state
     }

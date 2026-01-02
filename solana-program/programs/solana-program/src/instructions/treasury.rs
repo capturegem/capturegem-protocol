@@ -1,6 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_2022::{self, TransferChecked};
-use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
+use anchor_spl::token_interface::TokenInterface;
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
@@ -94,7 +93,7 @@ pub fn harvest_fees(ctx: Context<HarvestFees>) -> Result<()> {
         .ok_or(ProtocolError::MathOverflow)?;
     
     // Handle any rounding remainder by adding to pinner share
-    let remainder = harvested_amount.checked_sub(total_split).unwrap_or(0);
+    let remainder = harvested_amount.saturating_sub(total_split);
     let final_pinner_share = pinner_share.checked_add(remainder).unwrap_or(pinner_share);
 
     // 3. Update CollectionState reward balances

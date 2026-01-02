@@ -1,9 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     token_2022::{self, InitializeMint},
-    token_interface::{Mint, TokenInterface},
+    token_interface::TokenInterface,
 };
-use anchor_lang::solana_program::program::invoke;
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;

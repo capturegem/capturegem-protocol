@@ -1,6 +1,6 @@
 // solana-program/programs/solana-program/src/instructions/staking.rs
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{TokenAccount, TokenInterface};
+use anchor_spl::token_interface::TokenInterface;
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
@@ -39,7 +39,7 @@ pub fn stake_moderator(
 ) -> Result<()> {
     let global_state = &ctx.accounts.global_state;
     let moderator_stake = &mut ctx.accounts.moderator_stake;
-    let moderator_token_account = &ctx.accounts.moderator_token_account;
+    let _moderator_token_account = &ctx.accounts.moderator_token_account;
 
     // Check if stake amount meets minimum requirement
     require!(

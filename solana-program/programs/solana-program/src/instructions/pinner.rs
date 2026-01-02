@@ -117,8 +117,7 @@ pub fn claim_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
         .ok_or(ProtocolError::MathOverflow)?;
 
     let pending = accumulated
-        .checked_sub(pinner_state.reward_debt)
-        .unwrap_or(0); // If debt > accumulated (shouldn't happen), 0
+        .saturating_sub(pinner_state.reward_debt);
 
     require!(pending > 0, ProtocolError::InsufficientFunds);
     
