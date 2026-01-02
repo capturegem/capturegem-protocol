@@ -105,7 +105,7 @@ impl ModTicket {
     pub const MAX_SIZE: usize = 8 + 32 + MAX_ID_LEN + 1 + MAX_REASON_LEN + 1 + 1 + 33 + 1;
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TicketType {
     ContentReport,   // Flagging illegal or TOS-violating content
     DuplicateReport, // Flagging re-uploaded or copy-cat content

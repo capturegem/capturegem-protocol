@@ -55,9 +55,12 @@ pub fn upload_video(
         ProtocolError::VideoLimitExceeded
     );
 
+    // Store collection key before mutable borrow
+    let collection_key = collection.key();
+    
     // Initialize video state
     let video = &mut ctx.accounts.video;
-    video.collection = ctx.accounts.collection.key();
+    video.collection = collection_key;
     video.video_id = video_id;
     video.root_cid = root_cid;
     video.performer_wallet = ctx.accounts.performer_wallet
@@ -72,7 +75,7 @@ pub fn upload_video(
         .ok_or(ProtocolError::MathOverflow)?;
 
     // Initialize or update PerformerEscrow if performer_wallet is provided
-    if let Some(performer) = ctx.accounts.performer_wallet.as_ref() {
+    if ctx.accounts.performer_wallet.is_some() {
         // In production: Initialize PerformerEscrow PDA if it doesn't exist
         // For now, we just track it in the video state
     }

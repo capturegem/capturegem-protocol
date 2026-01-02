@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
-    token_2022::{self, InitializeMint, InitializeTransferFeeConfig},
-    token_interface::{Mint, TokenInterface},
+    token_2022::{self, InitializeMint},
+    token_interface::TokenInterface,
 };
 use crate::state::*;
 use crate::errors::ProtocolError;
@@ -25,16 +25,9 @@ pub struct CreateCollection<'info> {
     /// CHECK: Price oracle feed (Pyth or Switchboard) for this Collection Token
     pub oracle_feed: UncheckedAccount<'info>,
 
-    #[account(
-        init,
-        payer = owner,
-        mint::decimals = 6, // Use 6 decimals for better price precision
-        mint::authority = collection, // The PDA controls the mint
-        mint::token_program = token_program,
-        extensions::transfer_fee_config::authority = collection,
-        extensions::transfer_fee_config::withdraw_authority = collection,
-    )]
-    pub mint: Box<InterfaceAccount<'info, Mint>>,
+    /// CHECK: Token mint account (will be initialized)
+    #[account(mut)]
+    pub mint: UncheckedAccount<'info>,
 
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
@@ -73,37 +66,19 @@ pub fn create_collection(
     collection.total_shares = 0;
     collection.acc_reward_per_share = 0;
 
-    // Initialize Transfer Fee Config (Token 2022)
-    // We set a 10% fee (1000 basis points) max, strictly for demonstration
-    let fee_basis_points = 1000; 
-    let max_fee = u64::MAX;
-
+    // Initialize Mint (Standard)
+    // Note: Transfer fee config would be initialized separately via CPI if needed
+    let owner_key = ctx.accounts.owner.key();
+    let collection_id_bytes = collection.collection_id.as_bytes();
+    let bump = ctx.bumps.collection;
     let seeds = &[
         b"collection",
-        ctx.accounts.owner.key().as_ref(),
-        collection.collection_id.as_bytes(),
-        &[ctx.bumps.collection],
+        owner_key.as_ref(),
+        collection_id_bytes,
+        &[bump],
     ];
     let signer = &[&seeds[..]];
 
-    // 1. Initialize Transfer Fee Config
-    let cpi_accounts_config = InitializeTransferFeeConfig {
-        mint: ctx.accounts.mint.to_account_info(),
-    };
-    let cpi_ctx_config = CpiContext::new_with_signer(
-        ctx.accounts.token_program.to_account_info(),
-        cpi_accounts_config,
-        signer
-    );
-    token_2022::initialize_transfer_fee_config(
-        cpi_ctx_config,
-        Some(&collection.key()),
-        Some(&collection.key()),
-        fee_basis_points,
-        max_fee,
-    )?;
-
-    // 2. Initialize Mint (Standard)
     let cpi_accounts_mint = InitializeMint {
         mint: ctx.accounts.mint.to_account_info(),
         rent: ctx.accounts.rent.to_account_info(),
