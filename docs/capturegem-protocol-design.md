@@ -92,9 +92,13 @@ Stores network-wide configuration URLs and economic parameters.
 ```rust
 struct GlobalState {
     admin: Pubkey,
+    treasury: Pubkey,
     indexer_api_url: String,   
     node_registry_url: String,
     moderator_stake_minimum: u64,
+    capgm_mint: Pubkey,        // The CAPGM ecosystem token mint
+    fee_basis_points: u16,     // Protocol fee
+    bump: u8,
 }
 ```
 
@@ -116,18 +120,25 @@ struct UserAccount {
 
 Represents a specific library of content owned by a user.
 
-**Seeds:** `['collection', owner_pubkey, collection_id_hash]`
+**Seeds:** `['collection', owner_pubkey, collection_id]`
 
 ```rust
 struct CollectionState {
     owner: Pubkey,
     collection_id: String,       // e.g. "travel-vlog-2025"
-    collection_token_mint: Pubkey,
+    mint: Pubkey,                // Collection token mint
+    name: String,
+    content_cid: String,        // IPFS CID
     oracle_feed: Pubkey,         // Price feed for this specific token
     access_threshold_usd: u64,
     max_video_limit: u32,        // e.g., 100 videos max to prevent spam
     video_count: u32,
     reward_pool_balance: u64,    // Accumulated 50% fees waiting for Pinners
+    owner_reward_balance: u64,   // Accumulated 20% fees for Owner
+    performer_escrow_balance: u64, // Accumulated 20% fees for Performer
+    staker_reward_balance: u64,   // Accumulated 10% fees for CAPGM Stakers
+    total_shares: u64,           // Total active pinner shares
+    acc_reward_per_share: u128,  // Accumulated rewards per share (Precision 1e12)
 }
 ```
 
@@ -138,10 +149,86 @@ Links a Pinner to a specific collection they host, creating a verifiable on-chai
 **Seeds:** `['host_bond', pinner_pubkey, collection_state_key]`
 
 ```rust
-struct PinnerCollectionBond {
-    pinner: Pubkey,
+struct PinnerState {
     collection: Pubkey,
+    pinner: Pubkey,
     last_audit_pass: i64, // Timestamp of last successful availability check
+    is_active: bool,
+    shares: u64,        // This pinner's stake/shares
+    reward_debt: u128,  // Reward debt for MasterChef algorithm
+}
+```
+
+#### E. Performer Escrow
+
+Holds performer fees until claimed by the verified performer.
+
+**Seeds:** `['performer_escrow', collection_state_key]`
+
+```rust
+struct PerformerEscrow {
+    collection: Pubkey,
+    performer_wallet: Pubkey,  // Wallet address of the performer (can be updated via moderation)
+    balance: u64,              // Accumulated performer fees
+    bump: u8,
+}
+```
+
+#### F. Moderation Ticket
+
+Represents a moderation request or claim.
+
+**Seeds:** `['ticket', target_id]`
+
+```rust
+struct ModTicket {
+    reporter: Pubkey,
+    target_id: String,
+    ticket_type: TicketType,  // ContentReport, DuplicateReport, or PerformerClaim
+    reason: String,
+    resolved: bool,
+    verdict: bool,            // true = approved (banned), false = rejected (kept)
+    resolver: Option<Pubkey>, // Moderator who resolved it
+    bump: u8,
+}
+
+enum TicketType {
+    ContentReport,   // Flagging illegal or TOS-violating content
+    DuplicateReport, // Flagging re-uploaded or copy-cat content
+    PerformerClaim,  // Performer claiming their fee share
+}
+```
+
+#### G. Moderator Stake
+
+Tracks CAPGM staking for moderators.
+
+**Seeds:** `['moderator_stake', moderator_pubkey]`
+
+```rust
+struct ModeratorStake {
+    moderator: Pubkey,
+    stake_amount: u64,
+    is_active: bool,
+    slash_count: u32,
+    bump: u8,
+}
+```
+
+#### H. Video State
+
+Tracks individual videos within a collection.
+
+**Seeds:** `['video', collection_state_key, video_id]`
+
+```rust
+struct VideoState {
+    collection: Pubkey,
+    video_id: String,       // Content hash or unique ID
+    root_cid: String,      // IPFS CID of the HLS directory
+    performer_wallet: Option<Pubkey>, // Performer's wallet (for fee distribution)
+    uploaded_at: i64,
+    bump: u8,
 }
 ```
 
@@ -232,9 +319,10 @@ The Indexer acts as the "legal filter" and UX guardian for the protocol.
 
 1. **User Init:** User initializes their UserAccount, establishing their IPNS identity.
 
-2. **Collection Init:** User calls `create_collection(id="my-series", max_videos=50)`.
-   - The Program uses CPI to mint the COLLECTION_TOKEN (Token-2022) with the transfer fee extension enabled.
+2. **Collection Init:** User calls `create_collection(id="my-series", name="My Series", content_cid="...", access_threshold_usd=1000, max_video_limit=50)`.
+   - The Program uses CPI to mint the COLLECTION_TOKEN (Token-2022) with 6 decimals and the transfer fee extension enabled (10%).
    - The Program initializes the CollectionState PDA to track limits and rewards.
+   - The CollectionState PDA seeds include the owner's pubkey to prevent ID collisions.
 
 3. **Oracle Setup:** User registers the Price Oracle feed (e.g., Pyth or Switchboard) that will be used to price their token in USD.
 
@@ -244,21 +332,21 @@ The Indexer acts as the "legal filter" and UX guardian for the protocol.
 
 2. **Acquisition:** The User swaps CAPGM for the specific COLLECTION_TOKEN on a DEX.
 
-3. **Minting:** The User attempts to mint a View Right. The Contract queries the Oracle for the current price, multiplies it by the user's balance, and checks if `Value >= CollectionState.access_threshold_usd`.
+3. **Minting:** The User attempts to mint a View Right. The Contract queries the Oracle (Pyth or Switchboard) for the current price, multiplies it by the user's token balance (accounting for 6 decimals), and checks if `Value >= CollectionState.access_threshold_usd`.
 
 4. **Access:** If the check passes, the View Right PDA is created/renewed. The App recognizes this PDA and unlocks the encrypted content keys for that Collection.
 
 ### 5.3 Fee Distribution (10% Transfer Fee)
 
-Every transfer of a Collection Token triggers a 10% fee. This is harvested and split to sustain the ecosystem:
+Every transfer of a Collection Token triggers a 10% fee. This is harvested via `harvest_fees()` and split to sustain the ecosystem:
 
-- **50% → IPFS Pinners:** This portion is accumulated in `CollectionState.reward_pool_balance`, creating a "bounty" for nodes that store this specific collection.
+- **50% → IPFS Pinners:** This portion is accumulated in `CollectionState.reward_pool_balance` and distributed via the MasterChef algorithm based on shares. Pinners can claim rewards after passing audits.
 
-- **20% → Collection Owner:** Direct revenue for the creator, incentivizing them to increase the value of their token.
+- **20% → Collection Owner:** Accumulated in `CollectionState.owner_reward_balance`. The owner can claim these rewards separately.
 
-- **20% → Performer:** Held in PerformerEscrow. This protects talent who may not be the uploader. They can claim this by proving ownership of their wallet address.
+- **20% → Performer:** Accumulated in `PerformerEscrow.balance`. The performer wallet is set during video upload or via moderation ticket resolution. Performers can claim via `claim_performer_escrow()`.
 
-- **10% → CAPGM Stakers:** Rewards the governance participants who secure the protocol.
+- **10% → CAPGM Stakers:** Accumulated in `CollectionState.staker_reward_balance` and sent to the global staker treasury. Distribution to individual stakers is handled by a separate staking contract.
 
 ### 5.4 The "Pin-to-Earn" Reward Cycle
 
@@ -266,7 +354,8 @@ To ensure that the 50% fee share effectively incentivizes storage of the specifi
 
 1. **Signaling:**
    - A Pinner calls `register_collection_host`.
-   - This creates a PinnerCollectionBond on-chain, linking their Node ID to the Collection ID.
+   - This creates a PinnerState PDA on-chain, linking their wallet to the Collection.
+   - The pinner receives 1 share (can be scaled based on storage size in future).
 
 2. **Auditing:**
    - "Fishermen" (randomly selected validators) periodically challenge the Pinner to provide a specific block of data from the collection.
@@ -274,8 +363,9 @@ To ensure that the 50% fee share effectively incentivizes storage of the specifi
 
 3. **Claiming:**
    - The Pinner calls `claim_rewards`.
-   - The Contract enforces: `bond.last_audit_pass > Now - 7 Days`.
-   - If valid, the contract transfers a proportional share of the `CollectionState.reward_pool_balance` to the Pinner's wallet.
+   - The Contract enforces: `pinner_state.last_audit_pass > Now - 7 Days` AND `pinner_state.is_active == true`.
+   - If valid, the contract calculates pending rewards using the MasterChef formula: `(shares * acc_reward_per_share) - reward_debt`.
+   - The contract transfers the calculated amount from `CollectionState.reward_pool_balance` to the Pinner's wallet.
 
 ## 6. Moderation System (Staked Moderators)
 
@@ -283,7 +373,7 @@ To ensure that the 50% fee share effectively incentivizes storage of the specifi
 
 - **Reporter (Fisherman):** Any user who flags content (illegal, TOS violation) or submits a claim. They create a ModTicket.
 
-- **Moderator:** A user who has staked the required `moderator_stake_minimum` (e.g., 10k CAPGM). They have the power to instantly resolve tickets.
+- **Moderator:** A user who has staked the required `moderator_stake_minimum` (e.g., 10k CAPGM) via `stake_moderator()`. They have the power to instantly resolve tickets. Their stake is verified on-chain before allowing ticket resolution.
 
 - **Super Moderator:** Trusted entities (initially DAO appointed) who oversee the Moderators and have the power to slash stakes.
 
@@ -293,7 +383,7 @@ To ensure that the 50% fee share effectively incentivizes storage of the specifi
 
 - **DuplicateReport:** Flagging re-uploaded or copy-cat content. Resolution: The content is flagged as "Duplicate" in the UI, potentially lowering its visibility.
 
-- **PerformerClaim:** A performer claiming their 20% fee share from a Creator's escrow. Resolution: The `PerformerEscrow.performer_wallet` is updated to the claimant's address, allowing them to withdraw funds.
+- **PerformerClaim:** A performer claiming their 20% fee share from a Creator's escrow. Resolution: The `PerformerEscrow.performer_wallet` is updated to the claimant's address, allowing them to withdraw funds via `claim_performer_escrow()`.
 
 ### 6.3 Resolution Process
 
@@ -305,4 +395,4 @@ To ensure that the 50% fee share effectively incentivizes storage of the specifi
 
 4. **Optimistic Execution:** The action is taken immediately (e.g., content hidden). This ensures rapid response times for harmful content.
 
-5. **Oversight:** Super Moderators review logs of resolved tickets. If a Moderator is found to have acted maliciously (e.g., banning valid content or approving illegal content), the Super Mod calls `slash_moderator`, burning the Moderator's stake and suspending their privileges.
+5. **Oversight:** Super Moderators (the protocol admin) review logs of resolved tickets. If a Moderator is found to have acted maliciously (e.g., banning valid content or approving illegal content), the admin calls `slash_moderator`, which sets the moderator's stake to 0, deactivates them, and increments their slash_count. The slashed tokens are burned or sent to treasury.

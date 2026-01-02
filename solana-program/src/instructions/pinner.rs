@@ -9,7 +9,7 @@ pub struct RegisterHost<'info> {
     
     #[account(
         mut, 
-        seeds = [b"collection", collection.collection_id.as_bytes()],
+        seeds = [b"collection", collection.owner.as_ref(), collection.collection_id.as_bytes()],
         bump
     )]
     pub collection: Account<'info, CollectionState>,
@@ -18,7 +18,7 @@ pub struct RegisterHost<'info> {
         init,
         payer = pinner,
         space = 8 + 32 + 32 + 8 + 1 + 8 + 16, // Adjusted space
-        seeds = [b"pinner", collection.key().as_ref(), pinner.key().as_ref()],
+        seeds = [b"host_bond", pinner.key().as_ref(), collection.key().as_ref()],
         bump
     )]
     pub pinner_state: Account<'info, PinnerState>,
@@ -40,14 +40,18 @@ pub struct ClaimRewards<'info> {
     #[account(mut)]
     pub pinner: Signer<'info>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [b"collection", collection.owner.as_ref(), collection.collection_id.as_bytes()],
+        bump
+    )]
     pub collection: Account<'info, CollectionState>,
 
     #[account(
         mut,
-        seeds = [b"pinner", collection.key().as_ref(), pinner.key().as_ref()],
+        seeds = [b"host_bond", pinner.key().as_ref(), collection.key().as_ref()],
         bump,
-        constraint = pinner_state.pinner == pinner.key()
+        constraint = pinner_state.pinner == pinner.key() @ ProtocolError::Unauthorized
     )]
     pub pinner_state: Account<'info, PinnerState>,
 }
@@ -93,8 +97,20 @@ pub fn submit_audit_result(ctx: Context<SubmitAudit>, success: bool) -> Result<(
 pub fn claim_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
     let collection = &mut ctx.accounts.collection;
     let pinner_state = &mut ctx.accounts.pinner_state;
+    let clock = Clock::get()?;
 
-    // 1. Calculate accumulated reward
+    // 1. Check audit window (must have passed audit within last 7 days)
+    let audit_window = 7 * 86400; // 7 days in seconds
+    let time_since_audit = clock.unix_timestamp
+        .checked_sub(pinner_state.last_audit_pass)
+        .ok_or(ProtocolError::MathOverflow)?;
+    
+    require!(
+        time_since_audit <= audit_window && pinner_state.is_active,
+        ProtocolError::AuditWindowExpired
+    );
+
+    // 2. Calculate accumulated reward
     // pending = (shares * acc_reward_per_share) - reward_debt
     let accumulated = (pinner_state.shares as u128)
         .checked_mul(collection.acc_reward_per_share)
@@ -106,17 +122,17 @@ pub fn claim_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
 
     require!(pending > 0, ProtocolError::InsufficientFunds);
     
-    // 2. Ensure collection has funds
+    // 3. Ensure collection has funds
     let pending_u64 = pending as u64;
     require!(collection.reward_pool_balance >= pending_u64, ProtocolError::InsufficientFunds);
 
-    // 3. Update State
+    // 4. Update State
     collection.reward_pool_balance = collection.reward_pool_balance.checked_sub(pending_u64).unwrap();
     
     // Reset debt
     pinner_state.reward_debt = accumulated;
 
-    // 4. Transfer (Mock transfer from vault PDA to user)
+    // 5. Transfer (Mock transfer from vault PDA to user)
     // In production: perform a CPI to transfer SOL or USDC from a vault PDA
     let pinner = &ctx.accounts.pinner;
     **pinner.to_account_info().try_borrow_mut_lamports()? += pending_u64;

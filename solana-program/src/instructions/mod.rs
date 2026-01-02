@@ -5,6 +5,9 @@ pub mod access;
 pub mod pinner;
 pub mod treasury;
 pub mod moderation;
+pub mod staking;
+pub mod performer;
+pub mod video;
 
 pub use admin::*;
 pub use user::*;
@@ -12,3 +15,6 @@ pub use access::*;
 pub use pinner::*;
 pub use treasury::*;
 pub use moderation::*;
+pub use staking::*;
+pub use performer::*;
+pub use video::*;
