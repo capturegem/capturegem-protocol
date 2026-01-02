@@ -19,22 +19,36 @@ export class ProtocolClient {
   /**
    * Creates a new content collection and mints the Token-2022 asset.
    */
-  async createCollection(collectionId: string, maxVideos: number, accessThreshold: number) {
+  async createCollection(
+    collectionId: string, 
+    name: string,
+    contentCid: string,
+    maxVideoLimit: number, 
+    accessThresholdUsd: number,
+    oracleFeed: PublicKey
+  ) {
     const owner = this.walletManager.getPublicKey();
     const [collectionStatePda] = PublicKey.findProgramAddressSync(
-      [SEED_COLLECTION_STATE, owner.toBuffer(), Buffer.from(collectionId)],
+      [Buffer.from("collection"), owner.toBuffer(), Buffer.from(collectionId)],
       this.program.programId
     );
 
-    // Note: Actual implementation would include instructions to mint the token
+    // Derive mint PDA (would be created by the instruction)
+    // In production, the mint is created via CPI in the instruction
+
     const tx = await this.program.methods
-      .createCollection(collectionId, maxVideos, PublicKey.default, new anchor.BN(accessThreshold))
+      .createCollection(
+        collectionId, 
+        name,
+        contentCid,
+        new anchor.BN(accessThresholdUsd),
+        maxVideoLimit
+      )
       .accounts({
         owner: owner,
-        userAccount: this.getUserAccountPda(owner),
-        collectionState: collectionStatePda,
-        // ... other accounts
-        systemProgram: SystemProgram.programId,
+        collection: collectionStatePda,
+        oracleFeed: oracleFeed,
+        // mint, token_program, system_program, rent are handled by Anchor
       })
       .transaction();
 
@@ -44,7 +58,7 @@ export class ProtocolClient {
   /**
    * Checks USD value of holdings and mints/renews access.
    */
-  async mintViewRights(collectionId: string, ownerPubkey: PublicKey) {
+  async buyAccessToken(collectionId: string, ownerPubkey: PublicKey) {
     const user = this.walletManager.getPublicKey();
     
     // Derive Collection State
@@ -53,15 +67,23 @@ export class ProtocolClient {
         this.program.programId
     );
 
-    // Fetch collection to get Mint address (Mock)
+    // Derive View Rights PDA
+    const [viewRightsPda] = PublicKey.findProgramAddressSync(
+        [SEED_VIEW_RIGHT, user.toBuffer(), collectionStatePda.toBuffer()],
+        this.program.programId
+    );
+
+    // Fetch collection to get Mint address and Oracle feed
     // const colAccount = await this.program.account.collectionState.fetch(collectionStatePda);
 
     const tx = await this.program.methods
-      .mintViewRight()
+      .buyAccessToken()
       .accounts({
-        user: user,
-        collectionState: collectionStatePda,
-        // viewRight: derived...
+        payer: user,
+        collection: collectionStatePda,
+        buyerTokenAccount: PublicKey.default, // TODO: Derive actual token account
+        oracleFeed: PublicKey.default, // TODO: Get from collection state
+        viewRights: viewRightsPda,
       })
       .transaction();
 
