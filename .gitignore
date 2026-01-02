@@ -47,3 +47,6 @@ Thumbs.db
 # Cursor
 .cursorrules
 .cursorignore
+
+# Temporary files
+temp-files/
