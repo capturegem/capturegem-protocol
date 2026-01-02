@@ -1,82 +1,91 @@
-// solana-program/programs/solana-program/src/instructions/access.rs
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{TokenAccount, Mint, Token2022};
+use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface, MintTo};
 use crate::state::*;
-use crate::constants::*;
-use crate::errors::CaptureGemError;
+use crate::errors::ProtocolError;
 
 #[derive(Accounts)]
-pub struct MintViewRight<'info> {
+pub struct BuyAccess<'info> {
     #[account(mut)]
-    pub user: Signer<'info>,
-
-    #[account(
-        seeds = [SEED_COLLECTION_STATE, collection_state.owner.as_ref(), collection_state.collection_id.as_bytes()],
-        bump = collection_state.bump
-    )]
-    pub collection_state: Account<'info, CollectionState>,
+    pub payer: Signer<'info>,
 
     #[account(
         mut,
-        associated_token::mint = collection_mint,
-        associated_token::authority = user,
-    )]
-    pub user_token_account: InterfaceAccount<'info, TokenAccount>,
-
-    #[account(address = collection_state.collection_token_mint)]
-    pub collection_mint: InterfaceAccount<'info, Mint>,
-
-    #[account(
-        init_if_needed,
-        payer = user,
-        space = ViewRight::MAX_SIZE,
-        seeds = [SEED_VIEW_RIGHT, collection_mint.key().as_ref(), user.key().as_ref()],
+        seeds = [b"collection", collection.collection_id.as_bytes()],
         bump
     )]
-    pub view_right: Account<'info, ViewRight>,
+    pub collection: Account<'info, CollectionState>,
 
-    /// CHECK: Trusted Oracle feed, verified against collection_state
-    #[account(address = collection_state.oracle_feed)]
+    #[account(mut)]
+    pub mint: InterfaceAccount<'info, Mint>,
+
+    #[account(mut)]
+    pub buyer_token_account: InterfaceAccount<'info, TokenAccount>,
+    
+    /// CHECK: In production this would be a Pyth or Switchboard aggregator account
     pub oracle_feed: UncheckedAccount<'info>,
 
+    pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
-    pub token_program: Interface<'info, Token2022>,
 }
 
-pub fn mint_view_right(ctx: Context<MintViewRight>) -> Result<()> {
-    let collection = &ctx.accounts.collection_state;
-    let user_balance = ctx.accounts.user_token_account.amount;
+pub fn buy_access_token(ctx: Context<BuyAccess>) -> Result<()> {
+    let collection = &ctx.accounts.collection;
+    let access_price_usd_cents = collection.access_price; // e.g. 500 = $5.00
 
-    // 1. Fetch Price from Oracle (Mock logic)
-    // In production, deserialize Pyth/Switchboard data here.
-    // Example: let price = get_price(&ctx.accounts.oracle_feed)?;
-    let token_price_usd = 1_00; // Mock: $1.00 (2 decimals)
+    // 1. Get Price from Oracle (Mock)
+    // In production: Use pyth_sdk_solana::load_price_feed_from_account_info
+    let sol_price_usd = 150_00; // Mock: $150.00
     
-    // 2. Calculate Value
-    // Value = Balance * Price
-    let user_value_usd = user_balance.checked_mul(token_price_usd).ok_or(CaptureGemError::Overflow)?;
-
-    // 3. Check Threshold
-    if user_value_usd < collection.access_threshold_usd {
-        return err!(CaptureGemError::InsufficientFunds);
+    if sol_price_usd <= 0 {
+        return err!(ProtocolError::InvalidOraclePrice);
     }
 
-    // 4. Update/Create View Right PDA
-    let view_right = &mut ctx.accounts.view_right;
-    let now = Clock::get()?.unix_timestamp;
+    // 2. Calculate SOL required
+    // Required SOL = Access Price / SOL Price
+    // Example: $5.00 / $150.00 = 0.0333 SOL
+    let sol_required_lamports = (access_price_usd_cents as u128)
+        .checked_mul(1_000_000_000) // to lamports
+        .ok_or(ProtocolError::MathOverflow)?
+        .checked_div(sol_price_usd as u128)
+        .ok_or(ProtocolError::MathOverflow)?;
 
-    // If currently valid, extend? Or just error? Design says renewable.
-    if view_right.expires_at > now {
-        // Option A: Extend
-        view_right.expires_at = view_right.expires_at + VIEW_RIGHTS_VALIDITY_SECONDS;
-    } else {
-        // Option B: New
-        view_right.expires_at = now + VIEW_RIGHTS_VALIDITY_SECONDS;
-    }
+    // 3. Transfer SOL from payer to Collection Treasury (or directly to reward pool)
+    let transfer_instruction = anchor_lang::solana_program::system_instruction::transfer(
+        &ctx.accounts.payer.key(),
+        &collection.key(), // Sending to collection PDA for simplicity (reward pool)
+        sol_required_lamports as u64,
+    );
     
-    view_right.owner = ctx.accounts.user.key();
-    view_right.collection = collection.key();
-    view_right.bump = ctx.bumps.view_right;
+    anchor_lang::solana_program::program::invoke(
+        &transfer_instruction,
+        &[
+            ctx.accounts.payer.to_account_info(),
+            ctx.accounts.collection.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
+        ],
+    )?;
+
+    // 4. Mint Access Token to Buyer
+    let seeds = &[
+        b"collection",
+        collection.collection_id.as_bytes(),
+        &[ctx.bumps.collection],
+    ];
+    let signer = &[&seeds[..]];
+
+    let cpi_accounts = MintTo {
+        mint: ctx.accounts.mint.to_account_info(),
+        to: ctx.accounts.buyer_token_account.to_account_info(),
+        authority: ctx.accounts.collection.to_account_info(),
+    };
+    let cpi_ctx = CpiContext::new_with_signer(
+        ctx.accounts.token_program.to_account_info(), 
+        cpi_accounts, 
+        signer
+    );
+    
+    // Mint 1 token (decimals = 0)
+    anchor_spl::token::mint_to(cpi_ctx, 1)?;
 
     Ok(())
 }

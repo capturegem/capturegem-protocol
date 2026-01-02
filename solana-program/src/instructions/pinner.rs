@@ -1,77 +1,130 @@
-// solana-program/programs/solana-program/src/instructions/pinner.rs
 use anchor_lang::prelude::*;
 use crate::state::*;
-use crate::constants::*;
-use crate::errors::CaptureGemError;
+use crate::errors::ProtocolError;
 
 #[derive(Accounts)]
 pub struct RegisterHost<'info> {
     #[account(mut)]
     pub pinner: Signer<'info>,
-
-    #[account(mut)]
-    pub collection_state: Account<'info, CollectionState>,
+    
+    #[account(
+        mut, 
+        seeds = [b"collection", collection.collection_id.as_bytes()],
+        bump
+    )]
+    pub collection: Account<'info, CollectionState>,
 
     #[account(
         init,
         payer = pinner,
-        space = PinnerCollectionBond::MAX_SIZE,
-        seeds = [SEED_PINNER_BOND, pinner.key().as_ref(), collection_state.key().as_ref()],
+        space = 8 + 32 + 32 + 8 + 1 + 8 + 16, // Adjusted space
+        seeds = [b"pinner", collection.key().as_ref(), pinner.key().as_ref()],
         bump
     )]
-    pub bond: Account<'info, PinnerCollectionBond>,
-    
+    pub pinner_state: Account<'info, PinnerState>,
+
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SubmitAudit<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>, // Must be a designated auditor/validator
+
+    #[account(mut)]
+    pub pinner_state: Account<'info, PinnerState>,
 }
 
 #[derive(Accounts)]
 pub struct ClaimRewards<'info> {
     #[account(mut)]
     pub pinner: Signer<'info>,
-    
+
     #[account(mut)]
-    pub collection_state: Account<'info, CollectionState>,
-    
+    pub collection: Account<'info, CollectionState>,
+
     #[account(
         mut,
-        seeds = [SEED_PINNER_BOND, pinner.key().as_ref(), collection_state.key().as_ref()],
-        bump = bond.bump,
-        has_one = pinner,
-        has_one = collection = collection_state.key()
+        seeds = [b"pinner", collection.key().as_ref(), pinner.key().as_ref()],
+        bump,
+        constraint = pinner_state.pinner == pinner.key()
     )]
-    pub bond: Account<'info, PinnerCollectionBond>,
+    pub pinner_state: Account<'info, PinnerState>,
 }
 
 pub fn register_collection_host(ctx: Context<RegisterHost>) -> Result<()> {
-    let bond = &mut ctx.accounts.bond;
-    bond.pinner = ctx.accounts.pinner.key();
-    bond.collection = ctx.accounts.collection_state.key();
-    bond.last_audit_pass = Clock::get()?.unix_timestamp;
-    bond.bump = ctx.bumps.bond;
+    let pinner_state = &mut ctx.accounts.pinner_state;
+    let collection = &mut ctx.accounts.collection;
+
+    pinner_state.collection = collection.key();
+    pinner_state.pinner = ctx.accounts.pinner.key();
+    pinner_state.last_audit_pass = Clock::get()?.unix_timestamp;
+    pinner_state.is_active = true;
+
+    // Set Shares (1 share per pinner for now, could be based on storage size)
+    pinner_state.shares = 1;
+    
+    // Update Collection total shares
+    collection.total_shares = collection.total_shares.checked_add(pinner_state.shares).ok_or(ProtocolError::MathOverflow)?;
+
+    // Calculate initial reward debt so they don't claim past rewards
+    // debt = shares * acc_reward_per_share
+    pinner_state.reward_debt = (pinner_state.shares as u128)
+        .checked_mul(collection.acc_reward_per_share)
+        .ok_or(ProtocolError::MathOverflow)?;
+
+    Ok(())
+}
+
+pub fn submit_audit_result(ctx: Context<SubmitAudit>, success: bool) -> Result<()> {
+    // In a real app, check if ctx.accounts.authority is a valid "Fisherman" validator
+    let pinner_state = &mut ctx.accounts.pinner_state;
+    
+    if success {
+        pinner_state.last_audit_pass = Clock::get()?.unix_timestamp;
+        pinner_state.is_active = true;
+    } else {
+        // Slashing logic could go here
+        pinner_state.is_active = false;
+    }
     Ok(())
 }
 
 pub fn claim_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
-    let bond = &ctx.accounts.bond;
-    let now = Clock::get()?.unix_timestamp;
+    let collection = &mut ctx.accounts.collection;
+    let pinner_state = &mut ctx.accounts.pinner_state;
 
-    // Verify Audit Recency
-    if bond.last_audit_pass < (now - PINNER_AUDIT_WINDOW) {
-        return err!(CaptureGemError::PinnerClaimTooEarly); // Or "AuditExpired"
-    }
+    // 1. Calculate accumulated reward
+    // pending = (shares * acc_reward_per_share) - reward_debt
+    let accumulated = (pinner_state.shares as u128)
+        .checked_mul(collection.acc_reward_per_share)
+        .ok_or(ProtocolError::MathOverflow)?;
 
-    // Distribute Logic
-    // In a full implementation, this calculates share based on pool weight.
-    // For MVP/TDD, we assume a simple payout from the accumulated pool in CollectionState.
+    let pending = accumulated
+        .checked_sub(pinner_state.reward_debt)
+        .unwrap_or(0); // If debt > accumulated (shouldn't happen), 0
+
+    require!(pending > 0, ProtocolError::InsufficientFunds);
     
-    let collection = &mut ctx.accounts.collection_state;
-    let payout = collection.reward_pool_balance; // Simplified: Drains pool (Example only)
+    // 2. Ensure collection has funds
+    let pending_u64 = pending as u64;
+    require!(collection.reward_pool_balance >= pending_u64, ProtocolError::InsufficientFunds);
+
+    // 3. Update State
+    collection.reward_pool_balance = collection.reward_pool_balance.checked_sub(pending_u64).unwrap();
     
-    if payout > 0 {
-        collection.reward_pool_balance = 0;
-        // Transfer logic (System Program transfer or SPL transfer) would go here
-        // **ctx.accounts.pinner.try_borrow_mut_lamports()? += payout;**
-    }
+    // Reset debt
+    pinner_state.reward_debt = accumulated;
+
+    // 4. Transfer (Mock transfer from vault PDA to user)
+    // In production: perform a CPI to transfer SOL or USDC from a vault PDA
+    let pinner = &ctx.accounts.pinner;
+    **pinner.to_account_info().try_borrow_mut_lamports()? += pending_u64;
+    
+    // Note: We need to subtract lamports from the PDA. 
+    // This requires the PDA to actually hold the SOL being claimed.
+    // For now, assuming the collection account holds the SOL reward pool.
+    **collection.to_account_info().try_borrow_mut_lamports()? -= pending_u64;
 
     Ok(())
 }

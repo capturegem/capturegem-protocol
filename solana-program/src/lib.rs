@@ -1,59 +1,45 @@
-// solana-program/programs/solana-program/src/lib.rs
 use anchor_lang::prelude::*;
 
 pub mod constants;
 pub mod errors;
-pub mod state;
 pub mod instructions;
+pub mod state;
 
 use instructions::*;
 
-declare_id!("3zPs2F67GNWofnpbKSDwy3CmHap8KTVWBPLLXABzQmRv");
+declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 
 #[program]
 pub mod solana_program {
     use super::*;
 
-    pub fn initialize_protocol(
-        ctx: Context<InitializeGlobal>, 
-        indexer_url: String, 
-        registry_url: String, 
-        mod_stake_min: u64
-    ) -> Result<()> {
-        instructions::admin::initialize_protocol(ctx, indexer_url, registry_url, mod_stake_min)
-    }
-
-    pub fn initialize_user(ctx: Context<InitUser>, ipns_key: String) -> Result<()> {
-        instructions::user::initialize_user(ctx, ipns_key)
-    }
-
     pub fn create_collection(
         ctx: Context<CreateCollection>, 
         collection_id: String, 
-        max_videos: u32,
-        oracle_feed: Pubkey,
-        access_threshold: u64
+        name: String, 
+        content_cid: String, 
+        access_price: u64
     ) -> Result<()> {
-        instructions::user::create_collection(ctx, collection_id, max_videos, oracle_feed, access_threshold)
+        instructions::user::create_collection(ctx, collection_id, name, content_cid, access_price)
     }
 
-    pub fn mint_view_right(ctx: Context<MintViewRight>) -> Result<()> {
-        instructions::access::mint_view_right(ctx)
+    pub fn buy_access_token(ctx: Context<BuyAccess>) -> Result<()> {
+        instructions::access::buy_access_token(ctx)
     }
 
-    pub fn register_host(ctx: Context<RegisterHost>) -> Result<()> {
+    pub fn register_collection_host(ctx: Context<RegisterHost>) -> Result<()> {
         instructions::pinner::register_collection_host(ctx)
     }
 
     pub fn claim_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
         instructions::pinner::claim_rewards(ctx)
     }
-
-    pub fn create_mod_ticket(ctx: Context<CreateTicket>, target_id: String, reason: String) -> Result<()> {
-        instructions::moderation::create_ticket(ctx, target_id, reason)
+    
+    pub fn submit_audit_result(ctx: Context<SubmitAudit>, success: bool) -> Result<()> {
+        instructions::pinner::submit_audit_result(ctx, success)
     }
 
-    pub fn resolve_mod_ticket(ctx: Context<ResolveTicket>, verdict: bool) -> Result<()> {
-        instructions::moderation::resolve_ticket(ctx, verdict)
+    pub fn harvest_fees(ctx: Context<HarvestFees>) -> Result<()> {
+        instructions::treasury::harvest_fees(ctx)
     }
 }
