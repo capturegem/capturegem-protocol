@@ -1,0 +1,136 @@
+import { expect } from "chai";
+import { Keypair, SystemProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import {
+  program,
+  user,
+  oracleFeed,
+  setupAccounts,
+  getUserAccountPDA,
+  getCollectionPDA,
+} from "./helpers/setup";
+import {
+  IPNS_KEY,
+  COLLECTION_ID,
+  COLLECTION_NAME,
+  CONTENT_CID,
+  ACCESS_THRESHOLD_USD,
+  MAX_VIDEO_LIMIT,
+} from "./helpers/constants";
+
+describe("User Account & Collection", () => {
+  before(async () => {
+    await setupAccounts();
+  });
+
+  describe("User Account", () => {
+    it("Successfully initializes user account", async () => {
+      const [userAccountPDA] = getUserAccountPDA(user.publicKey);
+
+      const tx = await program.methods
+        .initializeUserAccount(IPNS_KEY)
+        .accounts({
+          authority: user.publicKey,
+          userAccount: userAccountPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([user])
+        .rpc();
+
+      const userAccount = await program.account.userAccount.fetch(userAccountPDA);
+      expect(userAccount.authority.toString()).to.equal(user.publicKey.toString());
+      expect(userAccount.ipnsKey).to.equal(IPNS_KEY);
+      expect(userAccount.isOnline).to.be.false;
+    });
+
+    it("Fails if ipns_key exceeds MAX_IPNS_KEY_LEN", async () => {
+      const longKey = "a".repeat(101); // MAX_IPNS_KEY_LEN is 100
+      const [userAccountPDA] = getUserAccountPDA(user.publicKey);
+
+      try {
+        await program.methods
+          .initializeUserAccount(longKey)
+          .accounts({
+            authority: user.publicKey,
+            userAccount: userAccountPDA,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+        expect.fail("Should have failed");
+      } catch (err: any) {
+        expect(err.toString()).to.include("StringTooLong");
+      }
+    });
+  });
+
+  describe("Collection Creation", () => {
+    it("Successfully creates collection", async () => {
+      const [collectionPDA] = getCollectionPDA(user.publicKey, COLLECTION_ID);
+      const mint = Keypair.generate();
+
+      const tx = await program.methods
+        .createCollection(
+          COLLECTION_ID,
+          COLLECTION_NAME,
+          CONTENT_CID,
+          ACCESS_THRESHOLD_USD,
+          MAX_VIDEO_LIMIT
+        )
+        .accounts({
+          owner: user.publicKey,
+          collection: collectionPDA,
+          oracleFeed: oracleFeed.publicKey,
+          mint: mint.publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .signers([user, mint])
+        .rpc();
+
+      const collection = await program.account.collectionState.fetch(collectionPDA);
+      expect(collection.owner.toString()).to.equal(user.publicKey.toString());
+      expect(collection.collectionId).to.equal(COLLECTION_ID);
+      expect(collection.name).to.equal(COLLECTION_NAME);
+      expect(collection.contentCid).to.equal(CONTENT_CID);
+      expect(collection.accessThresholdUsd.toString()).to.equal(ACCESS_THRESHOLD_USD.toString());
+      expect(collection.maxVideoLimit).to.equal(MAX_VIDEO_LIMIT);
+      expect(collection.videoCount).to.equal(0);
+      expect(collection.rewardPoolBalance.toString()).to.equal("0");
+      expect(collection.ownerRewardBalance.toString()).to.equal("0");
+      expect(collection.performerEscrowBalance.toString()).to.equal("0");
+      expect(collection.stakerRewardBalance.toString()).to.equal("0");
+    });
+
+    it("Fails if max_video_limit is 0", async () => {
+      const [collectionPDA] = getCollectionPDA(user.publicKey, "invalid-collection");
+      const mint = Keypair.generate();
+
+      try {
+        await program.methods
+          .createCollection(
+            "invalid-collection",
+            COLLECTION_NAME,
+            CONTENT_CID,
+            ACCESS_THRESHOLD_USD,
+            0 // Invalid
+          )
+          .accounts({
+            owner: user.publicKey,
+            collection: collectionPDA,
+            oracleFeed: oracleFeed.publicKey,
+            mint: mint.publicKey,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            rent: SYSVAR_RENT_PUBKEY,
+          })
+          .signers([user, mint])
+          .rpc();
+        expect.fail("Should have failed");
+      } catch (err: any) {
+        expect(err.toString()).to.include("InvalidFeeConfig");
+      }
+    });
+  });
+});
