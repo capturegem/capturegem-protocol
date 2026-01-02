@@ -175,8 +175,24 @@ deploy_program() {
     echo -e "${YELLOW}Deploying program to localnet...${NC}"
     cd "$PROJECT_DIR"
     
-    if ! anchor deploy; then
+    # Check if program is already deployed
+    PROGRAM_ID="Hwwr37aHr1EddJZmFEXcEnJr94XKrjRotN6mua2tsfaZ"
+    if solana program show "$PROGRAM_ID" --url localhost >/dev/null 2>&1; then
+        echo -e "${YELLOW}Program already deployed. Checking if update is needed...${NC}"
+        # Get the deployed program's slot
+        DEPLOYED_SLOT=$(solana program show "$PROGRAM_ID" --url localhost 2>/dev/null | grep "Last Deployed In Slot" | awk '{print $5}')
+        if [ ! -z "$DEPLOYED_SLOT" ]; then
+            echo -e "${GREEN}Program found at slot $DEPLOYED_SLOT. Skipping deployment.${NC}"
+            echo -e "${YELLOW}To force redeploy, delete the program first or use: anchor deploy -- --skip-build${NC}"
+            return 0
+        fi
+    fi
+    
+    # Deploy with increased retries and timeout for large programs
+    echo -e "${YELLOW}Deploying program (this may take a while for large programs)...${NC}"
+    if ! anchor deploy -- --max-retries 10; then
         echo -e "${RED}Error: Failed to deploy program${NC}"
+        echo -e "${YELLOW}Tip: Large programs may need multiple attempts. Try running the script again.${NC}"
         exit 1
     fi
     
@@ -188,8 +204,16 @@ run_tests() {
     echo -e "${YELLOW}Running tests...${NC}"
     cd "$PROJECT_DIR"
     
+    # Check if program is already deployed to skip deployment
+    PROGRAM_ID="Hwwr37aHr1EddJZmFEXcEnJr94XKrjRotN6mua2tsfaZ"
+    SKIP_DEPLOY_FLAG=""
+    if solana program show "$PROGRAM_ID" --url localhost >/dev/null 2>&1; then
+        echo -e "${GREEN}Using existing deployed program. Skipping deployment in tests.${NC}"
+        SKIP_DEPLOY_FLAG="--skip-deploy"
+    fi
+    
     # Run all test files
-    if ! anchor test --skip-local-validator; then
+    if ! anchor test --skip-local-validator $SKIP_DEPLOY_FLAG; then
         echo -e "${RED}Error: Tests failed${NC}"
         exit 1
     fi
@@ -213,9 +237,22 @@ main() {
     # Start surfpool
     start_surfpool
     
-    # Build and deploy
+    # Build the program
     build_program
-    deploy_program
+    
+    # Check if we should skip deployment
+    PROGRAM_ID="Hwwr37aHr1EddJZmFEXcEnJr94XKrjRotN6mua2tsfaZ"
+    SKIP_DEPLOY=false
+    if solana program show "$PROGRAM_ID" --url localhost >/dev/null 2>&1; then
+        echo -e "${GREEN}Program already deployed. Skipping deployment step.${NC}"
+        echo -e "${YELLOW}Note: anchor test will still check deployment but should use existing program.${NC}"
+        SKIP_DEPLOY=true
+    fi
+    
+    # Deploy only if needed
+    if [ "$SKIP_DEPLOY" = false ]; then
+        deploy_program
+    fi
     
     # Run tests
     echo ""
