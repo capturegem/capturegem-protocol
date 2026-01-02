@@ -13,14 +13,14 @@ This document serves as the master index for the CaptureGem codebase. It lists a
 
 ## 2. Solana Smart Contract (Anchor Framework)
 
-**Location:** `solana-program/src/`
+**Location:** `solana-program/programs/solana-program/src/`
 
 ### Core Configuration
 
 | File Path | Description |
 |-----------|-------------|
-| `lib.rs` | Entry Point. Registers the Program ID and routes instruction calls to specific modules. Exposes public RPC functions like `initialize_user_account`, `create_collection`, `buy_access_token`, `upload_video`, `stake_moderator`, `claim_rewards`, and more. |
-| `state.rs` | Data Structures. Defines all PDAs including GlobalState, UserAccount, CollectionState, PinnerState, PerformerEscrow, ModTicket, ModeratorStake, and VideoState. |
+| `lib.rs` | Entry Point. Registers the Program ID and routes instruction calls to specific modules. Exposes public RPC functions: `initialize_user_account`, `create_collection`, `upload_video`, `buy_access_token`, `register_collection_host`, `claim_rewards`, `submit_audit_result`, `harvest_fees`, `initialize_protocol`, `stake_moderator`, `slash_moderator`, `claim_performer_escrow`, `create_ticket`, and `resolve_ticket`. |
+| `state.rs` | Data Structures. Defines all PDAs including GlobalState, UserAccount, CollectionState, ViewRights, PinnerState, PerformerEscrow, ModTicket, ModeratorStake, and VideoState. |
 | `errors.rs` | Error Definitions. Custom error codes (e.g., VideoLimitExceeded, InsufficientFunds, TicketAlreadyResolved, InsufficientModeratorStake) for precise failure handling. |
 | `constants.rs` | System Constants. Hardcoded values for logic such as validity periods (90 days) and minimum stake requirements. |
 
@@ -41,7 +41,7 @@ This document serves as the master index for the CaptureGem codebase. It lists a
 
 ## 3. Client-Side Libraries (Electron / Node.js)
 
-**Location:** `solana-program/src/libs/`
+**Location:** `solana-program/library-source/libs/`
 
 These files run within the Electron Main Process to bridge the UI with the Blockchain and IPFS.
 

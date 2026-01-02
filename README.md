@@ -29,7 +29,7 @@ Built with the Anchor Framework in Rust. This contains the on-chain logic for st
 - `programs/solana-program/src/state.rs`: Definition of PDAs (CollectionState, UserAccount, etc.).
 - `programs/solana-program/src/instructions/`: Modular logic for Admin, User, Access, Treasury, and Pinner workflows.
 
-### 2. Client Libraries (`/src/libs`)
+### 2. Client Libraries (`/library-source/libs`)
 
 TypeScript libraries designed to run within an Electron environment (the "Client"). These bridge the user interface with the blockchain and the IPFS network.
 

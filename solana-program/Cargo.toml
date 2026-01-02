@@ -1,27 +1,12 @@
-[package]
-name = "solana-program"
-version = "0.1.0"
-description = "Created with Anchor"
-edition = "2021"
+[workspace]
+members = [
+    "programs/solana-program",
+]
+resolver = "2"
 
-[lib]
-crate-type = ["cdylib", "lib"]
-name = "solana_program"
-
-[features]
-no-entrypoint = []
-no-idl = []
-no-log-ix-name = []
-cpi = ["no-entrypoint"]
-default = []
+[workspace.dependencies]
+anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
+anchor-spl = "0.32.1"
 
 [profile.release]
 overflow-checks = true
-
-[dependencies]
-anchor-lang = { version = "0.29.0", features = ["init-if-needed"] }
-anchor-spl = { version = "0.29.0", features = ["metadata", "token_2022"] }
-spl-token-2022 = { version = "1.0.0", features = ["no-entrypoint"] }
-# TODO: Add oracle dependencies for production:
-# pyth-solana = { version = "0.3.0" }  # For Pyth price feeds
-# switchboard-v2 = { version = "0.4.0" }  # For Switchboard aggregators
