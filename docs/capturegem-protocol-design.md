@@ -1,6 +1,6 @@
 # Technical Design Document: CaptureGem Decentralized Protocol (CDP)
 
-**Version:** 3.4  
+**Version:** 1.0 
 **Date:** Jan 2, 2026  
 **Status:** Draft
 
