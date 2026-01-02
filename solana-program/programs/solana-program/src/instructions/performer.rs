@@ -1,0 +1,49 @@
+// solana-program/programs/solana-program/src/instructions/performer.rs
+use anchor_lang::prelude::*;
+use crate::state::*;
+use crate::errors::ProtocolError;
+use crate::constants::*;
+
+#[derive(Accounts)]
+pub struct ClaimPerformerEscrow<'info> {
+    #[account(mut)]
+    pub performer: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"collection", collection.owner.as_ref(), collection.collection_id.as_bytes()],
+        bump
+    )]
+    pub collection: Account<'info, CollectionState>,
+
+    #[account(
+        mut,
+        seeds = [SEED_PERFORMER_ESCROW, collection.key().as_ref()],
+        bump,
+        constraint = performer_escrow.performer_wallet == performer.key() @ ProtocolError::Unauthorized
+    )]
+    pub performer_escrow: Account<'info, PerformerEscrow>,
+
+    /// CHECK: Performer's token account to receive funds
+    #[account(mut)]
+    pub performer_token_account: UncheckedAccount<'info>,
+}
+
+pub fn claim_performer_escrow(ctx: Context<ClaimPerformerEscrow>) -> Result<()> {
+    let performer_escrow = &mut ctx.accounts.performer_escrow;
+
+    require!(
+        performer_escrow.balance > 0,
+        ProtocolError::InsufficientFunds
+    );
+
+    let claim_amount = performer_escrow.balance;
+    performer_escrow.balance = 0;
+
+    // In production: Transfer tokens to performer_token_account via CPI
+    // For now, we just reset the balance
+
+    msg!("PerformerEscrowClaimed: Amount={} Performer={}", claim_amount, ctx.accounts.performer.key());
+
+    Ok(())
+}

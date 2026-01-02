@@ -76,4 +76,58 @@ describe("Protocol Initialization", () => {
       expect(err.toString()).to.include("StringTooLong");
     }
   });
+
+  it("Fails if registry_url exceeds MAX_URL_LEN", async () => {
+    const longUrl = "a".repeat(201); // MAX_URL_LEN is 200
+    const [globalStatePDA] = getGlobalStatePDA();
+
+    try {
+      await program.methods
+        .initializeProtocol(
+          INDEXER_URL,
+          longUrl,
+          MOD_STAKE_MIN,
+          FEE_BASIS_POINTS
+        )
+        .accounts({
+          admin: admin.publicKey,
+          globalState: globalStatePDA,
+          treasury: treasury.publicKey,
+          capgmMint: capgmMint.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([admin])
+        .rpc();
+      expect.fail("Should have failed");
+    } catch (err: any) {
+      expect(err.toString()).to.include("StringTooLong");
+    }
+  });
+
+  it("Fails if called twice (already initialized)", async () => {
+    const [globalStatePDA] = getGlobalStatePDA();
+
+    try {
+      await program.methods
+        .initializeProtocol(
+          INDEXER_URL,
+          REGISTRY_URL,
+          MOD_STAKE_MIN,
+          FEE_BASIS_POINTS
+        )
+        .accounts({
+          admin: admin.publicKey,
+          globalState: globalStatePDA,
+          treasury: treasury.publicKey,
+          capgmMint: capgmMint.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([admin])
+        .rpc();
+      expect.fail("Should have failed - already initialized");
+    } catch (err: any) {
+      // Should fail because account already exists
+      expect(err.toString()).to.include("already in use");
+    }
+  });
 });

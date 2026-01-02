@@ -88,6 +88,54 @@ describe("Moderation", () => {
       const ticket = await program.account.modTicket.fetch(ticketPDA);
       expect(ticket.targetId).to.equal("target-3");
     });
+
+    it("Fails if target_id exceeds MAX_ID_LEN", async () => {
+      const longTargetId = "a".repeat(33); // MAX_ID_LEN is 32
+      const [ticketPDA] = getModTicketPDA(longTargetId);
+
+      try {
+        await program.methods
+          .createTicket(
+            longTargetId,
+            { contentReport: {} },
+            REASON
+          )
+          .accounts({
+            reporter: user.publicKey,
+            ticket: ticketPDA,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+        expect.fail("Should have failed");
+      } catch (err: any) {
+        expect(err.toString()).to.include("StringTooLong");
+      }
+    });
+
+    it("Fails if reason exceeds MAX_REASON_LEN", async () => {
+      const longReason = "a".repeat(201); // MAX_REASON_LEN is 200
+      const [ticketPDA] = getModTicketPDA("target-4");
+
+      try {
+        await program.methods
+          .createTicket(
+            "target-4",
+            { contentReport: {} },
+            longReason
+          )
+          .accounts({
+            reporter: user.publicKey,
+            ticket: ticketPDA,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+        expect.fail("Should have failed");
+      } catch (err: any) {
+        expect(err.toString()).to.include("StringTooLong");
+      }
+    });
   });
 
   describe("Resolve Ticket", () => {
@@ -113,6 +161,41 @@ describe("Moderation", () => {
       expect(ticket.resolved).to.be.true;
       expect(ticket.verdict).to.be.true;
       expect(ticket.resolver?.toString()).to.equal(moderator.publicKey.toString());
+    });
+
+    it("Successfully resolves ticket with verdict=false", async () => {
+      const [newTicketPDA] = getModTicketPDA("target-verdict-false");
+      
+      // Create ticket
+      await program.methods
+        .createTicket(
+          "target-verdict-false",
+          { contentReport: {} },
+          REASON
+        )
+        .accounts({
+          reporter: user.publicKey,
+          ticket: newTicketPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([user])
+        .rpc();
+
+      // Resolve with false
+      await program.methods
+        .resolveTicket(false)
+        .accounts({
+          moderator: moderator.publicKey,
+          globalState: globalStatePDA,
+          moderatorStake: moderatorStakePDA,
+          ticket: newTicketPDA,
+        })
+        .signers([moderator])
+        .rpc();
+
+      const ticket = await program.account.modTicket.fetch(newTicketPDA);
+      expect(ticket.resolved).to.be.true;
+      expect(ticket.verdict).to.be.false;
     });
 
     it("Fails if ticket is already resolved", async () => {

@@ -62,6 +62,25 @@ describe("User Account & Collection", () => {
         expect(err.toString()).to.include("StringTooLong");
       }
     });
+
+    it("Fails if called twice for same user (already initialized)", async () => {
+      const [userAccountPDA] = getUserAccountPDA(user.publicKey);
+
+      try {
+        await program.methods
+          .initializeUserAccount(IPNS_KEY)
+          .accounts({
+            authority: user.publicKey,
+            userAccount: userAccountPDA,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+        expect.fail("Should have failed - already initialized");
+      } catch (err: any) {
+        expect(err.toString()).to.include("already in use");
+      }
+    });
   });
 
   describe("Collection Creation", () => {
@@ -130,6 +149,99 @@ describe("User Account & Collection", () => {
         expect.fail("Should have failed");
       } catch (err: any) {
         expect(err.toString()).to.include("InvalidFeeConfig");
+      }
+    });
+
+    it("Fails if collection_id exceeds MAX_ID_LEN", async () => {
+      const longId = "a".repeat(33); // MAX_ID_LEN is 32
+      const [collectionPDA] = getCollectionPDA(user.publicKey, longId);
+      const mint = Keypair.generate();
+
+      try {
+        await program.methods
+          .createCollection(
+            longId,
+            COLLECTION_NAME,
+            CONTENT_CID,
+            ACCESS_THRESHOLD_USD,
+            MAX_VIDEO_LIMIT
+          )
+          .accounts({
+            owner: user.publicKey,
+            collection: collectionPDA,
+            oracleFeed: oracleFeed.publicKey,
+            mint: mint.publicKey,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            rent: SYSVAR_RENT_PUBKEY,
+          })
+          .signers([user, mint])
+          .rpc();
+        expect.fail("Should have failed");
+      } catch (err: any) {
+        expect(err.toString()).to.include("StringTooLong");
+      }
+    });
+
+    it("Fails if name exceeds MAX_NAME_LEN", async () => {
+      const longName = "a".repeat(51); // MAX_NAME_LEN is 50
+      const [collectionPDA] = getCollectionPDA(user.publicKey, "test-collection-2");
+      const mint = Keypair.generate();
+
+      try {
+        await program.methods
+          .createCollection(
+            "test-collection-2",
+            longName,
+            CONTENT_CID,
+            ACCESS_THRESHOLD_USD,
+            MAX_VIDEO_LIMIT
+          )
+          .accounts({
+            owner: user.publicKey,
+            collection: collectionPDA,
+            oracleFeed: oracleFeed.publicKey,
+            mint: mint.publicKey,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            rent: SYSVAR_RENT_PUBKEY,
+          })
+          .signers([user, mint])
+          .rpc();
+        expect.fail("Should have failed");
+      } catch (err: any) {
+        expect(err.toString()).to.include("StringTooLong");
+      }
+    });
+
+    it("Fails if content_cid exceeds MAX_URL_LEN", async () => {
+      const longCid = "a".repeat(201); // MAX_URL_LEN is 200
+      const [collectionPDA] = getCollectionPDA(user.publicKey, "test-collection-3");
+      const mint = Keypair.generate();
+
+      try {
+        await program.methods
+          .createCollection(
+            "test-collection-3",
+            COLLECTION_NAME,
+            longCid,
+            ACCESS_THRESHOLD_USD,
+            MAX_VIDEO_LIMIT
+          )
+          .accounts({
+            owner: user.publicKey,
+            collection: collectionPDA,
+            oracleFeed: oracleFeed.publicKey,
+            mint: mint.publicKey,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            rent: SYSVAR_RENT_PUBKEY,
+          })
+          .signers([user, mint])
+          .rpc();
+        expect.fail("Should have failed");
+      } catch (err: any) {
+        expect(err.toString()).to.include("StringTooLong");
       }
     });
   });

@@ -69,6 +69,33 @@ describe("Moderator Staking", () => {
         expect(err.toString()).to.include("InsufficientModeratorStake");
       }
     });
+
+    it("Successfully adds additional stake to existing moderator", async () => {
+      const [moderatorStakePDA] = getModeratorStakePDA(moderator.publicKey);
+      const moderatorTokenAccount = Keypair.generate().publicKey;
+      const additionalStake = new anchor.BN(5000);
+
+      const moderatorStakeBefore = await program.account.moderatorStake.fetch(moderatorStakePDA);
+      const stakeBefore = moderatorStakeBefore.stakeAmount;
+
+      await program.methods
+        .stakeModerator(additionalStake)
+        .accounts({
+          moderator: moderator.publicKey,
+          globalState: globalStatePDA,
+          moderatorTokenAccount: moderatorTokenAccount,
+          moderatorStake: moderatorStakePDA,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([moderator])
+        .rpc();
+
+      const moderatorStakeAfter = await program.account.moderatorStake.fetch(moderatorStakePDA);
+      expect(moderatorStakeAfter.stakeAmount.toString()).to.equal(
+        stakeBefore.add(additionalStake).toString()
+      );
+    });
   });
 
   describe("Slash Moderator", () => {

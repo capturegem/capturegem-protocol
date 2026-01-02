@@ -39,4 +39,25 @@ describe("Performer Escrow", () => {
       expect(err.toString()).to.include("InsufficientFunds");
     }
   });
+
+  it("Fails if performer_wallet doesn't match signer", async () => {
+    const wrongPerformer = Keypair.generate();
+    const performerTokenAccount = Keypair.generate().publicKey;
+
+    try {
+      await program.methods
+        .claimPerformerEscrow()
+        .accounts({
+          performer: wrongPerformer.publicKey,
+          collection: collectionPDA,
+          performerEscrow: performerEscrowPDA,
+          performerTokenAccount: performerTokenAccount,
+        })
+        .signers([wrongPerformer])
+        .rpc();
+      expect.fail("Should have failed - wrong performer");
+    } catch (err: any) {
+      expect(err.toString()).to.include("Unauthorized");
+    }
+  });
 });

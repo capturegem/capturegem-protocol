@@ -16,16 +16,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR"
 SURFPOOL_PID=""
 ANCHOR_PID=""
+SURFPOOL_STARTED_BY_SCRIPT=false
 
 # Cleanup function
 cleanup() {
     echo -e "\n${YELLOW}Cleaning up...${NC}"
     
-    # Kill surfpool if running
-    if [ ! -z "$SURFPOOL_PID" ]; then
+    # Only kill surfpool if we started it
+    if [ "$SURFPOOL_STARTED_BY_SCRIPT" = true ] && [ ! -z "$SURFPOOL_PID" ]; then
         echo "Stopping Surfpool (PID: $SURFPOOL_PID)..."
         kill $SURFPOOL_PID 2>/dev/null || true
         wait $SURFPOOL_PID 2>/dev/null || true
+    elif [ "$SURFPOOL_STARTED_BY_SCRIPT" = false ] && [ ! -z "$SURFPOOL_PID" ]; then
+        echo "Leaving existing Surfpool instance running (PID: $SURFPOOL_PID)..."
     fi
     
     # Kill anchor test validator if running
@@ -35,8 +38,10 @@ cleanup() {
         wait $ANCHOR_PID 2>/dev/null || true
     fi
     
-    # Clean up any remaining processes
-    pkill -f "surfpool" 2>/dev/null || true
+    # Only clean up processes we started
+    if [ "$SURFPOOL_STARTED_BY_SCRIPT" = true ]; then
+        pkill -f "surfpool" 2>/dev/null || true
+    fi
     pkill -f "solana-test-validator" 2>/dev/null || true
     
     echo -e "${GREEN}Cleanup complete${NC}"
@@ -72,14 +77,40 @@ check_solana() {
     fi
 }
 
+# Check if surfpool is already running
+check_existing_surfpool() {
+    # Check if port 8899 is in use (default Solana RPC port)
+    if lsof -i :8899 >/dev/null 2>&1; then
+        # Find the surfpool process using port 8899
+        EXISTING_PID=$(lsof -ti :8899 | head -n 1)
+        if [ ! -z "$EXISTING_PID" ]; then
+            # Verify it's actually surfpool
+            if ps -p "$EXISTING_PID" -o comm= | grep -q surfpool; then
+                SURFPOOL_PID=$EXISTING_PID
+                SURFPOOL_STARTED_BY_SCRIPT=false
+                return 0
+            fi
+        fi
+    fi
+    return 1
+}
+
 # Start surfpool
 start_surfpool() {
-    echo -e "${YELLOW}Starting Surfpool...${NC}"
     cd "$PROJECT_DIR"
+    
+    # Check if surfpool is already running
+    if check_existing_surfpool; then
+        echo -e "${GREEN}Using existing Surfpool instance (PID: $SURFPOOL_PID)${NC}"
+        return 0
+    fi
+    
+    echo -e "${YELLOW}Starting Surfpool...${NC}"
     
     # Start surfpool in background
     surfpool start > /tmp/surfpool.log 2>&1 &
     SURFPOOL_PID=$!
+    SURFPOOL_STARTED_BY_SCRIPT=true
     
     # Wait for surfpool to be ready
     echo "Waiting for Surfpool to initialize..."
@@ -87,9 +118,23 @@ start_surfpool() {
     
     # Check if surfpool is still running
     if ! kill -0 $SURFPOOL_PID 2>/dev/null; then
-        echo -e "${RED}Error: Surfpool failed to start${NC}"
-        cat /tmp/surfpool.log
-        exit 1
+        # Check if it failed due to port conflict
+        if grep -q "port.*already in use" /tmp/surfpool.log 2>/dev/null; then
+            echo -e "${YELLOW}Port conflict detected. Checking for existing instance...${NC}"
+            if check_existing_surfpool; then
+                echo -e "${GREEN}Using existing Surfpool instance (PID: $SURFPOOL_PID)${NC}"
+                SURFPOOL_STARTED_BY_SCRIPT=false
+                return 0
+            else
+                echo -e "${RED}Error: Surfpool failed to start and no existing instance found${NC}"
+                cat /tmp/surfpool.log
+                exit 1
+            fi
+        else
+            echo -e "${RED}Error: Surfpool failed to start${NC}"
+            cat /tmp/surfpool.log
+            exit 1
+        fi
     fi
     
     echo -e "${GREEN}Surfpool started (PID: $SURFPOOL_PID)${NC}"

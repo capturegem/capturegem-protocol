@@ -38,9 +38,28 @@ describe("Pinner Operations", () => {
       expect(pinnerState.collection.toString()).to.equal(collectionPDA.toString());
       expect(pinnerState.isActive).to.be.true;
       expect(pinnerState.shares.toString()).to.equal("1");
+      expect(pinnerState.lastAuditPass.toNumber()).to.be.greaterThan(0);
 
       const collection = await program.account.collectionState.fetch(collectionPDA);
       expect(collection.totalShares.toString()).to.equal("1");
+    });
+
+    it("Fails if pinner already registered for same collection", async () => {
+      try {
+        await program.methods
+          .registerCollectionHost()
+          .accounts({
+            pinner: pinner.publicKey,
+            collection: collectionPDA,
+            pinnerState: pinnerStatePDA,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([pinner])
+          .rpc();
+        expect.fail("Should have failed - already registered");
+      } catch (err: any) {
+        expect(err.toString()).to.include("already in use");
+      }
     });
   });
 
@@ -107,6 +126,35 @@ describe("Pinner Operations", () => {
       } catch (err: any) {
         // Expected if no rewards in pool
         expect(err.toString()).to.include("InsufficientFunds");
+      }
+    });
+
+    it("Fails if pinner is not active", async () => {
+      // Deactivate pinner
+      const authority = Keypair.generate();
+      await program.methods
+        .submitAuditResult(false)
+        .accounts({
+          authority: authority.publicKey,
+          pinnerState: pinnerStatePDA,
+        })
+        .signers([authority])
+        .rpc();
+
+      // Try to claim
+      try {
+        await program.methods
+          .claimRewards()
+          .accounts({
+            pinner: pinner.publicKey,
+            collection: collectionPDA,
+            pinnerState: pinnerStatePDA,
+          })
+          .signers([pinner])
+          .rpc();
+        expect.fail("Should have failed - not active");
+      } catch (err: any) {
+        expect(err.toString()).to.include("AuditWindowExpired");
       }
     });
   });

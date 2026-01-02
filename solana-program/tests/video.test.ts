@@ -86,4 +86,70 @@ describe("Video Upload", () => {
       expect(err.toString()).to.include("VideoLimitExceeded");
     }
   });
+
+  it("Fails if video_id exceeds MAX_ID_LEN", async () => {
+    const longVideoId = "a".repeat(33); // MAX_ID_LEN is 32
+    const [videoPDA] = getVideoPDA(collectionPDA, longVideoId);
+
+    try {
+      await program.methods
+        .uploadVideo(longVideoId, ROOT_CID)
+        .accounts({
+          owner: user.publicKey,
+          collection: collectionPDA,
+          video: videoPDA,
+          performerWallet: null,
+          systemProgram: SystemProgram.programId,
+          clock: SYSVAR_CLOCK_PUBKEY,
+        })
+        .signers([user])
+        .rpc();
+      expect.fail("Should have failed");
+    } catch (err: any) {
+      expect(err.toString()).to.include("StringTooLong");
+    }
+  });
+
+  it("Fails if root_cid exceeds MAX_URL_LEN", async () => {
+    const longCid = "a".repeat(201); // MAX_URL_LEN is 200
+    const [videoPDA] = getVideoPDA(collectionPDA, "video-invalid-cid");
+
+    try {
+      await program.methods
+        .uploadVideo("video-invalid-cid", longCid)
+        .accounts({
+          owner: user.publicKey,
+          collection: collectionPDA,
+          video: videoPDA,
+          performerWallet: null,
+          systemProgram: SystemProgram.programId,
+          clock: SYSVAR_CLOCK_PUBKEY,
+        })
+        .signers([user])
+        .rpc();
+      expect.fail("Should have failed");
+    } catch (err: any) {
+      expect(err.toString()).to.include("StringTooLong");
+    }
+  });
+
+  it("Successfully uploads video with performer wallet", async () => {
+    const [videoPDA] = getVideoPDA(collectionPDA, "video-with-performer");
+
+    const tx = await program.methods
+      .uploadVideo("video-with-performer", ROOT_CID)
+      .accounts({
+        owner: user.publicKey,
+        collection: collectionPDA,
+        video: videoPDA,
+        performerWallet: performer.publicKey,
+        systemProgram: SystemProgram.programId,
+        clock: SYSVAR_CLOCK_PUBKEY,
+      })
+      .signers([user])
+      .rpc();
+
+    const video = await program.account.videoState.fetch(videoPDA);
+    expect(video.performerWallet?.toString()).to.equal(performer.publicKey.toString());
+  });
 });
