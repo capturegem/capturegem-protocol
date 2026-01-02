@@ -2,7 +2,7 @@
 
 **Website**: [https://www.capturegem.com](https://www.capturegem.com)
 
-CaptureGem is a decentralized application (DApp) and protocol designed to transform content streaming by allowing users to share, monetize, and moderate video content directly on the Solana blockchain. It utilizes a SocialFi model where access to specific content collections is gated by holding a dynamic USD value of a creator's unique Collection Token.
+CaptureGem is a decentralized application (DApp) and protocol designed to transform adult content streaming by allowing users to share, monetize, and moderate video content directly on the Solana blockchain. It utilizes a SocialFi model where access to specific content collections is gated by holding a dynamic USD value of a creator's unique Collection Token.
 
 > **Note**: CaptureGem is a released product with hundreds of active members. However, the DApp and social features are currently under active development. Visit [capturegem.com](https://www.capturegem.com) to learn more.
 
