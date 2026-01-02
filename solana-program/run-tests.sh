@@ -150,6 +150,23 @@ build_program() {
         exit 1
     fi
     
+    # Ensure the .so file is in the root target/deploy directory
+    # Anchor sometimes builds to programs/<program>/target/deploy instead of target/deploy
+    PROGRAM_SO="$PROJECT_DIR/programs/solana-program/target/deploy/solana_program.so"
+    DEPLOY_SO="$PROJECT_DIR/target/deploy/solana_program.so"
+    
+    if [ -f "$PROGRAM_SO" ] && [ ! -f "$DEPLOY_SO" ]; then
+        echo "Copying program binary to target/deploy..."
+        mkdir -p "$PROJECT_DIR/target/deploy"
+        cp "$PROGRAM_SO" "$DEPLOY_SO"
+    fi
+    
+    # Verify the file exists
+    if [ ! -f "$DEPLOY_SO" ]; then
+        echo -e "${RED}Error: Program binary not found at $DEPLOY_SO${NC}"
+        exit 1
+    fi
+    
     echo -e "${GREEN}Build successful${NC}"
 }
 
