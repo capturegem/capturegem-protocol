@@ -1,4 +1,4 @@
-// src/libs/IndexerClient.ts
+// library-source/libs/IndexerClient.ts
 import axios, { AxiosInstance } from "axios";
 
 export interface CollectionMetadata {

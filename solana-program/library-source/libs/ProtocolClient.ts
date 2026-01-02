@@ -1,4 +1,4 @@
-// src/libs/ProtocolClient.ts
+// library-source/libs/ProtocolClient.ts
 import * as anchor from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { WalletManager, RiskLevel } from "./WalletManager";

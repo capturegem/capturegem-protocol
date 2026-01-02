@@ -8,7 +8,7 @@ pub mod state;
 use instructions::*;
 use state::TicketType;
 
-declare_id!("3zPs2F67GNWofnpbKSDwy3CmHap8KTVWBPLLXABzQmRv");
+declare_id!("Hwwr37aHr1EddJZmFEXcEnJr94XKrjRotN6mua2tsfaZ");
 
 #[program]
 pub mod solana_program {
