@@ -38,8 +38,23 @@ pub mod solana_program {
         instructions::user::mint_collection_tokens(ctx, amount)
     }
 
-    pub fn buy_access_token(ctx: Context<BuyAccess>) -> Result<()> {
-        instructions::access::buy_access_token(ctx)
+    pub fn burn_unclaimed_tokens(ctx: Context<BurnUnclaimedTokens>) -> Result<()> {
+        instructions::user::burn_unclaimed_tokens(ctx)
+    }
+
+    pub fn create_access_escrow(
+        ctx: Context<CreateAccessEscrow>,
+        amount_locked: u64,
+    ) -> Result<()> {
+        instructions::access::create_access_escrow(ctx, amount_locked)
+    }
+
+    pub fn release_escrow(
+        ctx: Context<ReleaseEscrow>,
+        peer_wallets: Vec<Pubkey>,
+        peer_weights: Vec<u64>,
+    ) -> Result<()> {
+        instructions::access::release_escrow(ctx, peer_wallets, peer_weights)
     }
 
     pub fn register_collection_host(ctx: Context<RegisterHost>) -> Result<()> {
@@ -108,5 +123,13 @@ pub mod solana_program {
         verdict: bool
     ) -> Result<()> {
         instructions::moderation::resolve_ticket(ctx, verdict)
+    }
+
+    pub fn resolve_copyright_claim(
+        ctx: Context<ResolveCopyrightClaim>,
+        verdict: bool,
+        vault_amount: u64
+    ) -> Result<()> {
+        instructions::moderation::resolve_copyright_claim(ctx, verdict, vault_amount)
     }
 }

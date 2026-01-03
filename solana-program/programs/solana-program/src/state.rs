@@ -37,8 +37,13 @@ impl UserAccount {
 #[account]
 pub struct CollectionState {
     pub owner: Pubkey,      // Collection owner (matches design)
-    pub mint: Pubkey,
-    pub collection_id: String, // limited by MAX_ID_LEN
+    pub collection_id: String, // Unique slug (e.g., "cooking-101")
+    pub mint: Pubkey,        // The Collection Token Mint address
+    pub pool_address: Pubkey, // The specific Orca Whirlpool/Pool Address
+    pub claim_vault: Pubkey,  // PDA holding the 10% reserve
+    pub claim_deadline: i64,  // Timestamp (Now + 6 months)
+    pub total_trust_score: u64, // Aggregate reliability of this collection's swarm
+    pub is_blacklisted: bool,  // Moderator toggle for illegal content
     pub name: String,
     pub content_cid: String,   // IPFS CID
     pub access_threshold_usd: u64, // In USD cents (e.g. 1000 = $10.00)
@@ -51,6 +56,11 @@ pub struct CollectionState {
     pub staker_reward_balance: u64,   // Accumulated 10% fees for CAPGM Stakers
     pub total_shares: u64,           // Total active pinner shares
     pub acc_reward_per_share: u128,  // Accumulated rewards per share (Precision 1e12)
+    pub bump: u8,
+}
+
+impl CollectionState {
+    pub const MAX_SIZE: usize = 8 + 32 + MAX_ID_LEN + 32 + 32 + 32 + 8 + 8 + 1 + MAX_NAME_LEN + MAX_URL_LEN + 8 + 32 + 8 + 8 + 8 + 8 + 8 + 16 + 1;
 }
 
 #[account]
@@ -59,6 +69,31 @@ pub struct ViewRights {
     pub collection: Pubkey,
     pub minted_at: i64,    // Unix timestamp when minted/renewed
     pub expires_at: i64,   // Unix timestamp when access expires (minted_at + 90 days)
+}
+
+#[account]
+pub struct AccessEscrow {
+    pub purchaser: Pubkey,  // The user buying content
+    pub collection: Pubkey,  // The content being bought
+    pub amount_locked: u64, // Tokens bought from the pool, waiting for release
+    pub created_at: i64,    // Timestamp for timeout logic
+    pub bump: u8,
+}
+
+impl AccessEscrow {
+    pub const MAX_SIZE: usize = 8 + 32 + 32 + 8 + 8 + 1;
+}
+
+#[account]
+pub struct PeerTrustState {
+    pub peer_wallet: Pubkey,
+    pub total_successful_serves: u64, // Total number of released escrows
+    pub trust_score: u64,             // Weighted score (Serves * Consistency)
+    pub last_active: i64,             // For pruning inactive nodes
+}
+
+impl PeerTrustState {
+    pub const MAX_SIZE: usize = 8 + 32 + 8 + 8 + 8;
 }
 
 #[account]
@@ -104,7 +139,7 @@ impl ModTicket {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TicketType {
     ContentReport,   // Flagging illegal or TOS-violating content
-    DuplicateReport, // Flagging re-uploaded or copy-cat content
+    CopyrightClaim, // IP disputes - transfers 10% Claim Vault tokens to claimant
     PerformerClaim,  // Performer claiming their fee share
 }
 

@@ -13,7 +13,7 @@ pub struct CreateCollection<'info> {
     #[account(
         init,
         payer = owner,
-        space = 8 + 32 + 32 + MAX_ID_LEN + MAX_NAME_LEN + MAX_URL_LEN + 8 + 32 + 8 + 8 + 8 + 8 + 8 + 16,
+        space = CollectionState::MAX_SIZE,
         seeds = [b"collection", owner.key().as_ref(), collection_id.as_bytes()],
         bump
     )]
@@ -21,6 +21,14 @@ pub struct CreateCollection<'info> {
 
     /// CHECK: Price oracle feed (Pyth or Switchboard) for this Collection Token
     pub oracle_feed: UncheckedAccount<'info>,
+
+    /// CHECK: Orca pool address (will be set after pool creation)
+    #[account(mut)]
+    pub pool_address: UncheckedAccount<'info>,
+
+    /// CHECK: Claim vault token account (PDA that will hold 10% of tokens)
+    #[account(mut)]
+    pub claim_vault: UncheckedAccount<'info>,
 
     /// Token mint account (PDA derived from collection)
     #[account(
@@ -36,6 +44,7 @@ pub struct CreateCollection<'info> {
 
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
+    pub clock: Sysvar<'info, Clock>,
     pub rent: Sysvar<'info, Rent>,
 }
 
@@ -50,10 +59,19 @@ pub fn create_collection(
     require!(name.len() <= MAX_NAME_LEN, ProtocolError::StringTooLong);
     require!(content_cid.len() <= MAX_URL_LEN, ProtocolError::StringTooLong);
 
+    let clock = &ctx.accounts.clock;
     let collection = &mut ctx.accounts.collection;
+    
     collection.owner = ctx.accounts.owner.key();
-    collection.mint = ctx.accounts.mint.key();
     collection.collection_id = collection_id;
+    collection.mint = ctx.accounts.mint.key();
+    collection.pool_address = ctx.accounts.pool_address.key();
+    collection.claim_vault = ctx.accounts.claim_vault.key();
+    collection.claim_deadline = clock.unix_timestamp
+        .checked_add(crate::constants::CLAIM_VAULT_VESTING_SECONDS)
+        .ok_or(ProtocolError::MathOverflow)?;
+    collection.total_trust_score = 0;
+    collection.is_blacklisted = false;
     collection.name = name;
     collection.content_cid = content_cid;
     collection.access_threshold_usd = access_threshold_usd;
@@ -66,6 +84,7 @@ pub fn create_collection(
     collection.staker_reward_balance = 0;
     collection.total_shares = 0;
     collection.acc_reward_per_share = 0;
+    collection.bump = ctx.bumps.collection;
 
     // Mint is automatically created and initialized by Anchor's init constraint
     // The mint authority is set to the collection PDA, which allows the collection
@@ -140,9 +159,19 @@ pub struct MintCollectionTokens<'info> {
     )]
     pub creator_token_account: InterfaceAccount<'info, TokenAccount>,
 
+    /// CHECK: Claim vault token account (PDA) to receive 10% of minted tokens
+    #[account(
+        mut,
+        constraint = claim_vault.key() == collection.claim_vault @ ProtocolError::Unauthorized
+    )]
+    pub claim_vault: UncheckedAccount<'info>,
+
     /// CHECK: Orca DEX liquidity pool token account (or pool address)
-    /// This account will receive 90% of the minted tokens for liquidity provision
-    #[account(mut)]
+    /// This account will receive 80% of the minted tokens for liquidity provision
+    #[account(
+        mut,
+        constraint = orca_liquidity_pool.key() == collection.pool_address @ ProtocolError::Unauthorized
+    )]
     pub orca_liquidity_pool: UncheckedAccount<'info>,
 
     /// CHECK: Orca program ID (for CPI calls to Orca DEX)
@@ -169,30 +198,38 @@ pub fn mint_collection_tokens(
         ProtocolError::Unauthorized
     );
 
-    // Calculate distribution: 10% to creator, 90% to Orca
+    // Calculate distribution: 80% to Orca, 10% to creator, 10% to claim vault
+    let orca_amount = amount
+        .checked_mul(80)
+        .ok_or(ProtocolError::MathOverflow)?
+        .checked_div(100)
+        .ok_or(ProtocolError::MathOverflow)?;
+
     let creator_amount = amount
         .checked_mul(10)
         .ok_or(ProtocolError::MathOverflow)?
         .checked_div(100)
         .ok_or(ProtocolError::MathOverflow)?;
 
-    let orca_amount = amount
-        .checked_sub(creator_amount)
+    let claim_vault_amount = amount
+        .checked_mul(10)
+        .ok_or(ProtocolError::MathOverflow)?
+        .checked_div(100)
         .ok_or(ProtocolError::MathOverflow)?;
 
     // Verify the split is correct (accounting for rounding)
-    let total_distributed = creator_amount
-        .checked_add(orca_amount)
+    let total_distributed = orca_amount
+        .checked_add(creator_amount)
+        .and_then(|v| v.checked_add(claim_vault_amount))
         .ok_or(ProtocolError::MathOverflow)?;
     
-    // Handle any rounding remainder by adjusting creator amount
+    // Handle any rounding remainder by adjusting orca amount
     let remainder = amount.saturating_sub(total_distributed);
-    let final_creator_amount = creator_amount
+    let final_orca_amount = orca_amount
         .checked_add(remainder)
-        .unwrap_or(creator_amount);
-    let final_orca_amount = amount
-        .checked_sub(final_creator_amount)
-        .ok_or(ProtocolError::MathOverflow)?;
+        .unwrap_or(orca_amount);
+    let final_creator_amount = creator_amount;
+    let final_claim_vault_amount = claim_vault_amount;
 
     // 1. Mint tokens to creator and Orca
     // Since the mint authority is the collection PDA, we use CPI to mint
@@ -205,7 +242,7 @@ pub fn mint_collection_tokens(
     ];
     let signer = &[&seeds[..]];
 
-    // Mint tokens to creator's account (10%)
+    // 1. Mint tokens to creator's account (10%)
     let cpi_accounts = MintTo {
         mint: ctx.accounts.mint.to_account_info(),
         to: ctx.accounts.creator_token_account.to_account_info(),
@@ -215,7 +252,17 @@ pub fn mint_collection_tokens(
     let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
     anchor_spl::token_interface::mint_to(cpi_ctx, final_creator_amount)?;
 
-    // 2. Mint remaining tokens to Orca liquidity pool (90%)
+    // 2. Mint tokens to claim vault (10%)
+    let claim_vault_cpi_accounts = MintTo {
+        mint: ctx.accounts.mint.to_account_info(),
+        to: ctx.accounts.claim_vault.to_account_info(),
+        authority: ctx.accounts.collection.to_account_info(),
+    };
+    let claim_vault_cpi_program = ctx.accounts.token_program.to_account_info();
+    let claim_vault_cpi_ctx = CpiContext::new_with_signer(claim_vault_cpi_program, claim_vault_cpi_accounts, signer);
+    anchor_spl::token_interface::mint_to(claim_vault_cpi_ctx, final_claim_vault_amount)?;
+
+    // 3. Mint tokens to Orca liquidity pool (80%)
     // Note: In production, this would involve:
     // - Creating or finding an Orca Whirlpool/StableSwap pool
     // - Providing both sides of the liquidity pair (Collection Token + CAPGM)
@@ -248,11 +295,74 @@ pub fn mint_collection_tokens(
     // invoke_signed(&orca_ix, &orca_accounts, &signer_seeds)?;
 
     msg!(
-        "CollectionTokensMinted: Collection={} Creator={} CreatorAmount={} OrcaAmount={}",
+        "CollectionTokensMinted: Collection={} Creator={} CreatorAmount={} ClaimVaultAmount={} OrcaAmount={}",
         collection.collection_id,
         creator.key(),
         final_creator_amount,
+        final_claim_vault_amount,
         final_orca_amount
+    );
+
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct BurnUnclaimedTokens<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>, // Can be called by anyone after deadline
+
+    #[account(
+        mut,
+        seeds = [b"collection", collection.owner.as_ref(), collection.collection_id.as_bytes()],
+        bump
+    )]
+    pub collection: Account<'info, CollectionState>,
+
+    /// CHECK: Claim vault token account (PDA) holding the 10% reserve
+    #[account(
+        mut,
+        constraint = claim_vault.key() == collection.claim_vault @ ProtocolError::Unauthorized
+    )]
+    pub claim_vault: UncheckedAccount<'info>,
+
+    /// CHECK: Collection token mint
+    #[account(
+        mut,
+        seeds = [b"mint", collection.key().as_ref()],
+        bump
+    )]
+    pub mint: InterfaceAccount<'info, Mint>,
+
+    pub token_program: Interface<'info, TokenInterface>,
+    pub system_program: Program<'info, System>,
+    pub clock: Sysvar<'info, Clock>,
+}
+
+/// Burns unclaimed tokens from the claim vault after the 6-month vesting period expires.
+/// This creates a deflationary event that benefits all existing holders.
+pub fn burn_unclaimed_tokens(ctx: Context<BurnUnclaimedTokens>) -> Result<()> {
+    let collection = &ctx.accounts.collection;
+    let clock = &ctx.accounts.clock;
+
+    // Verify that the claim deadline has passed
+    require!(
+        clock.unix_timestamp >= collection.claim_deadline,
+        ProtocolError::Unauthorized // Use Unauthorized as a generic error for "not yet available"
+    );
+
+    // In production: 
+    // 1. Get the balance of the claim_vault token account
+    // 2. Use CPI to burn those tokens from the mint
+    // 3. This permanently reduces the total supply
+
+    // For now, we just log the event
+    // TODO: Implement actual token burning via CPI to token program's burn instruction
+
+    msg!(
+        "UnclaimedTokensBurned: Collection={} Deadline={} CurrentTime={}",
+        collection.collection_id,
+        collection.claim_deadline,
+        clock.unix_timestamp
     );
 
     Ok(())
