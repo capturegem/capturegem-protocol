@@ -109,6 +109,10 @@ pub struct PurchaseAccess<'info> {
     pub purchaser_nft_account: InterfaceAccount<'info, TokenAccount>,
 
     /// Collection token mint (for transfer_checked)
+    /// ⚠️ SECURITY: Must match the collection's mint to prevent fake token payments
+    #[account(
+        constraint = collection_mint.key() == collection.mint @ ProtocolError::Unauthorized
+    )]
     pub collection_mint: InterfaceAccount<'info, Mint>,
 
     /// Global state to get treasury address
@@ -514,6 +518,10 @@ pub struct CreateAccessEscrow<'info> {
     pub access_escrow: Account<'info, AccessEscrow>,
 
     /// Collection token mint (for transfer_checked)
+    /// ⚠️ SECURITY: Must match the collection's mint to prevent fake token payments
+    #[account(
+        constraint = collection_mint.key() == collection.mint @ ProtocolError::Unauthorized
+    )]
     pub collection_mint: InterfaceAccount<'info, Mint>,
 
     pub token_program: Interface<'info, TokenInterface>,
@@ -593,12 +601,14 @@ pub struct ReleaseEscrow<'info> {
     pub collection: Account<'info, CollectionState>,
 
     /// Access Escrow PDA - must be owned by purchaser and not expired
+    /// Closes the account after release to prevent state bloat and allow re-purchases
     #[account(
         mut,
         seeds = [SEED_ACCESS_ESCROW, purchaser.key().as_ref(), collection.key().as_ref()],
         bump = access_escrow.bump,
         constraint = access_escrow.purchaser == purchaser.key() @ ProtocolError::Unauthorized,
-        constraint = access_escrow.collection == collection.key() @ ProtocolError::Unauthorized
+        constraint = access_escrow.collection == collection.key() @ ProtocolError::Unauthorized,
+        close = purchaser // Close account and return rent to purchaser
     )]
     pub access_escrow: Account<'info, AccessEscrow>,
 
@@ -607,6 +617,10 @@ pub struct ReleaseEscrow<'info> {
     pub escrow_token_account: UncheckedAccount<'info>,
 
     /// Collection token mint (for transfer_checked)
+    /// ⚠️ SECURITY: Must match the collection's mint to prevent fake token payments
+    #[account(
+        constraint = collection_mint.key() == collection.mint @ ProtocolError::Unauthorized
+    )]
     pub collection_mint: InterfaceAccount<'info, Mint>,
 
     pub token_program: Interface<'info, TokenInterface>,

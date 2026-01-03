@@ -242,9 +242,13 @@ pub struct StakeCollectionTokens<'info> {
     #[account(mut)]
     pub staker_token_account: UncheckedAccount<'info>,
 
-    /// CHECK: Staking pool's collection token account
-    #[account(mut)]
-    pub pool_token_account: UncheckedAccount<'info>,
+    /// Staking pool's collection token account - must be owned by staking pool PDA with correct mint
+    #[account(
+        mut,
+        constraint = pool_token_account.owner == staking_pool.key() @ ProtocolError::Unauthorized,
+        constraint = pool_token_account.mint == collection_mint.key() @ ProtocolError::Unauthorized
+    )]
+    pub pool_token_account: InterfaceAccount<'info, TokenAccount>,
 
     /// Collection token mint (for transfer_checked)
     pub collection_mint: InterfaceAccount<'info, Mint>,
@@ -364,9 +368,13 @@ pub struct ClaimStakingRewards<'info> {
     #[account(mut)]
     pub staker_token_account: UncheckedAccount<'info>,
 
-    /// CHECK: Staking pool's collection token account (source)
-    #[account(mut)]
-    pub pool_token_account: UncheckedAccount<'info>,
+    /// Staking pool's collection token account (source) - must be owned by staking pool PDA with correct mint
+    #[account(
+        mut,
+        constraint = pool_token_account.owner == staking_pool.key() @ ProtocolError::Unauthorized,
+        constraint = pool_token_account.mint == collection_mint.key() @ ProtocolError::Unauthorized
+    )]
+    pub pool_token_account: InterfaceAccount<'info, TokenAccount>,
 
     /// Collection token mint (for transfer_checked)
     pub collection_mint: InterfaceAccount<'info, Mint>,
@@ -467,9 +475,13 @@ pub struct UnstakeCollectionTokens<'info> {
     #[account(mut)]
     pub staker_token_account: UncheckedAccount<'info>,
 
-    /// CHECK: Staking pool's collection token account (source)
-    #[account(mut)]
-    pub pool_token_account: UncheckedAccount<'info>,
+    /// Staking pool's collection token account (source) - must be owned by staking pool PDA with correct mint
+    #[account(
+        mut,
+        constraint = pool_token_account.owner == staking_pool.key() @ ProtocolError::Unauthorized,
+        constraint = pool_token_account.mint == collection_mint.key() @ ProtocolError::Unauthorized
+    )]
+    pub pool_token_account: InterfaceAccount<'info, TokenAccount>,
 
     /// Collection token mint (for transfer_checked)
     pub collection_mint: InterfaceAccount<'info, Mint>,
