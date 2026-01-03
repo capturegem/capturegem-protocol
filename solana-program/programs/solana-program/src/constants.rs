@@ -29,6 +29,9 @@ pub const SEED_CLAIM_VAULT: &[u8] = b"claim_vault";
 pub const SEED_PEER_TRUST: &[u8] = b"peer_trust";
 
 #[constant]
+pub const SEED_CID_REVEAL: &[u8] = b"cid_reveal";
+
+#[constant]
 pub const SEED_STAKING_POOL: &[u8] = b"staking_pool";
 
 #[constant]

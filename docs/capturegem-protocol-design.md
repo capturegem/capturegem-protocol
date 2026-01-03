@@ -1,6 +1,6 @@
 # Technical Design Document: CaptureGem Decentralized Protocol (CDP)
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Date:** January 3, 2026  
 **Status:** Approved
 
@@ -8,7 +8,9 @@
 
 CaptureGem CDP is a decentralized application (DApp) designed to transform the adult video streaming landscape by allowing users to share, sell, and moderate video content directly on the Solana blockchain. Unlike legacy Web2 platforms that rely on centralized servers, opaque algorithms, and arbitrary de-platforming, CaptureGem utilizes a unique SocialFi model that aligns incentives between creators, consumers, and infrastructure providers.
 
-The protocol introduces a novel "Trust-Based Delivery" mechanism that fundamentally reimagines the relationship between payment and service. In this model, Content Collections are backed by liquid tokens traded on decentralized exchanges (Orca). When users purchase access, the payment is split: 50% flows to a staking pool where collection token holders earn rewards, and 50% is held in escrow. This escrowed payment is only released to storage providers (IPFS Peers) once the purchaser's client confirms the content was successfully delivered—and critically, the buyer determines which peers deserve payment based on actual performance. If the buyer does not disburse funds within 24 hours, the escrowed tokens are automatically burned, creating deflationary pressure. This ensures a meritocratic network where high-performance nodes build on-chain Trust Scores, creating a feedback loop where quality service is algorithmically rewarded with higher earning potential.
+The protocol introduces a novel "Trust-Based Delivery" mechanism that fundamentally reimagines the relationship between payment and service. In this model, Content Collections are backed by liquid tokens traded on decentralized exchanges (Orca). When users purchase access, they create a purchase account on-chain containing only the SHA-256 hash of the collection's IPFS CID—the actual content address remains private. A pinner who hosts the collection then sends an encrypted message to the purchaser's wallet on-chain, containing the real CID encrypted with the purchaser's public key. The purchaser decrypts this using their private wallet key and verifies the hash matches their commitment, ensuring authenticity. The collection CID itself is a manifest document containing the CIDs of all individual videos, unlocking the entire collection with a single purchase.
+
+The payment is split: 50% flows to a staking pool where collection token holders earn rewards, and 50% is held in escrow. This escrowed payment is only released to storage providers (IPFS Peers) once the purchaser's client confirms the content was successfully delivered—and critically, the buyer determines which peers deserve payment based on actual performance. If the buyer does not disburse funds within 24 hours, the escrowed tokens are automatically burned, creating deflationary pressure. This ensures a meritocratic network where high-performance nodes build on-chain Trust Scores, creating a feedback loop where quality service is algorithmically rewarded with higher earning potential.
 
 Additionally, the protocol embeds intellectual property protection at the tokenomic level. A portion of every collection's supply is reserved in a "Claim Vault" for potential copyright disputes. This ensures that true rights holders have a path to monetization even if they were not the initial uploaders, solving a critical pain point in decentralized content distribution where anonymity can often shield infringement.
 
@@ -48,6 +50,7 @@ The client is designed as a "Zero-Configuration" application acting as both a me
                     │ Creator │
                     └────┬────┘
                          │ 1. Mint Collection
+                         │    Commit: SHA256(CID) → CollectionState
                          ▼
                  ┌──────────────────┐
                  │ Solana Program   │
@@ -61,6 +64,8 @@ The client is designed as a "Zero-Configuration" application acting as both a me
             │    Pool     │  └──────────────┘  └──────────────┘
             └──────┬──────┘
                    │ 2. Buy Access (Swap CAPGM → Collection Tokens)
+                   │    Commit: SHA256(CID) → AccessEscrow
+                   │    Expose: Purchaser PublicKey
                    ▼
             ┌──────────────────────┐
             │  Purchase Split      │
@@ -70,53 +75,101 @@ The client is designed as a "Zero-Configuration" application acting as both a me
                    ├────────── 50% ──────────┐
                    │                         │
                    ▼                         ▼
-       ┌─────────────────────┐      ┌──────────────────┐
-       │  Collection Token   │      │  Access Escrow   │
-       │   Staking Pool      │      │      PDA         │
-       │  (Rewards Stakers)  │      │  (24hr expiry)   │
-       └─────────────────────┘      └──────┬───────────┘
+       ┌─────────────────────┐      ┌──────────────────────┐
+       │  Collection Token   │      │  Access Escrow PDA   │
+       │   Staking Pool      │      │  • cid_hash          │
+       │  (Rewards Stakers)  │      │  • purchaser_pubkey  │
+       └─────────────────────┘      │  • 24hr expiry       │
+                                     └──────┬───────────────┘
                                             │
-                                            │ 3. Download Content
-                                            ▼
-                                     ┌──────────────┐
-                                     │ IPFS Network │
-                                     └──────┬───────┘
-                                            │ Data Stream
-                                            ▼
-                                     ┌──────────────┐
-                                     │   Purchaser  │
-                                     └──────┬───────┘
-                                            │ 4. Verify Peers & Choose Payment
-                                            │
-                      ┌─────────────────────┴─────────────────────┐
-                      │                                           │
-                      ▼ Within 24hrs                              ▼ After 24hrs
-            ┌─────────────────────┐                     ┌──────────────────┐
-            │ Trust Client Logic   │                     │ Permissionless   │
-            │ (Release to Peers)   │                     │  Burn Escrow     │
-            └──────┬───────────────┘                     └──────┬───────────┘
-                   │ 5a. Release Funds (Escrow 50%)             │ 5b. Burn Tokens
-                   ▼                                            ▼
-            ┌──────────────────┐                     ┌──────────────────┐
-            │  Access Escrow   │                     │ Reduce Supply    │
-            │      PDA         │                     │  (Deflationary)  │
-            └───┬───────────┬──┘                     └──────────────────┘
-                │           │
-                │ Payment   │ Payment
-                │           │
-                ▼           ▼
-            ┌──────────┐ ┌──────────┐
-            │ Peer A   │ │ Peer B   │
-            │ Wallet   │ │ Wallet   │
-            └─────┬────┘ └─────┬────┘
-                  │            │
-                  └──────┬─────┘
-                         │ Update Trust Score
-                         ▼
-                  ┌──────────────────┐
-                  │ On-Chain Trust   │
-                  │      Score       │
-                  └──────────────────┘
+            ╔═══════════════════════════════╧════════════════════════════╗
+            ║        CRYPTOGRAPHIC KEY EXCHANGE (On-Chain)               ║
+            ╠════════════════════════════════════════════════════════════╣
+            ║ 3. Pinner Observes Escrow & Encrypts CID                  ║
+            ║    • Pinner reads purchaser_pubkey from escrow             ║
+            ║    • Encrypts CID using X25519-XSalsa20-Poly1305          ║
+            ║    • Writes CidReveal PDA with encrypted_cid               ║
+            ╚════════════════════╤═══════════════════════════════════════╝
+                                 │
+                                 ▼
+                          ┌──────────────────────┐
+                          │   CID Reveal PDA     │
+                          │  • escrow            │
+                          │  • pinner            │
+                          │  • encrypted_cid     │
+                          │    [CID encrypted    │
+                          │     with X25519]     │
+                          └──────┬───────────────┘
+                                 │
+            ╔════════════════════╧════════════════════════════════════╗
+            ║ 4. Purchaser Decrypts & Verifies (Client-Side)        ║
+            ║    • Decrypt: CID = decrypt(encrypted_cid, privkey)   ║
+            ║    • Verify: SHA256(CID) ?= escrow.cid_hash           ║
+            ║    • If match → proceed; If mismatch → reject         ║
+            ╚════════════════════╤════════════════════════════════════╝
+                                 │
+                                 ▼
+                          ┌──────────────────────┐
+                          │  Collection Manifest │
+                          │  (CID now revealed)  │
+                          │  {                   │
+                          │   videos: [          │
+                          │    {cid: "Qm..."},   │
+                          │    {cid: "Qm..."}    │
+                          │   ]                  │
+                          │  }                   │
+                          └──────┬───────────────┘
+                                 │
+                                 │ 5. Fetch Manifest → Extract Video CIDs
+                                 ▼
+                          ┌──────────────┐
+                          │ IPFS Network │
+                          │  (DHT Lookup │
+                          │   + Bitswap) │
+                          └──────┬───────┘
+                                 │ 6. Download Content (Track Peer Performance)
+                                 ▼
+                          ┌──────────────┐
+                          │   Purchaser  │
+                          │  Trust Tool: │
+                          │  • Peer A: 500MB │
+                          │  • Peer B: 200MB │
+                          └──────┬───────┘
+                                 │ 7. Verify Peers & Choose Payment
+                                 │
+           ┌─────────────────────┴─────────────────────┐
+           │                                           │
+           ▼ Within 24hrs                              ▼ After 24hrs
+  ┌─────────────────────┐                   ┌──────────────────┐
+  │ Trust Client Logic   │                   │ Permissionless   │
+  │ (Release to Peers)   │                   │  Burn Escrow     │
+  └──────┬───────────────┘                   └──────┬───────────┘
+         │ 8a. Release Funds (50% Escrow)           │ 8b. Burn Tokens
+         ▼                                          ▼
+  ┌──────────────────┐                   ┌──────────────────┐
+  │  Access Escrow   │                   │ Reduce Supply    │
+  │      PDA         │                   │  (Deflationary)  │
+  └───┬───────────┬──┘                   └──────────────────┘
+      │           │
+      │ Payment   │ Payment
+      │ Based on  │ Based on
+      │ Actual    │ Actual
+      │ Delivery  │ Delivery
+      ▼           ▼
+  ┌──────────┐ ┌──────────┐
+  │ Peer A   │ │ Peer B   │
+  │ Wallet   │ │ Wallet   │
+  └─────┬────┘ └─────┬────┘
+        │            │
+        └──────┬─────┘
+               │ 9. Update Trust Score (On-Chain Reputation)
+               ▼
+        ┌──────────────────┐
+        │ PeerTrustState   │
+        │  • successful_   │
+        │    serves++      │
+        │  • trust_score++ │
+        └──────────────────┘
 ```
 
 ## 3. Solana Program Design (The Smart Contract)
@@ -147,12 +200,13 @@ The core logic resides in a custom Solana Program (Rust/Anchor), leveraging the 
 
 **A. Collection State**
 
-Stores the immutable metadata, pool references, and claim timers required for protocol operation.
+Stores the immutable metadata, pool references, and claim timers required for protocol operation. Notably, the collection stores only the SHA-256 hash of the IPFS CID—not the CID itself—ensuring content addresses remain private and can only be revealed by authorized pinners to verified purchasers.
 
 ```rust
 struct CollectionState {
     owner: Pubkey,               // The original creator
     collection_id: String,       // Unique slug (e.g., "cooking-101")
+    cid_hash: [u8; 32],          // SHA-256 hash of the collection IPFS CID (not the CID itself)
     mint: Pubkey,                // The Collection Token Mint address
     pool_address: Pubkey,        // The specific Orca Whirlpool/Pool Address
     claim_vault: Pubkey,         // PDA holding the 10% reserve
@@ -165,14 +219,30 @@ struct CollectionState {
 
 **B. Access Escrow**
 
-A temporary holding account created when a user purchases access but hasn't finished downloading. This is the core component of the "Trust-Based" payment model. The escrow has a 24-hour expiration window, after which unclaimed funds are burned.
+A temporary holding account created when a user purchases access but hasn't finished downloading. This is the core component of the "Trust-Based" payment model. The escrow has a 24-hour expiration window, after which unclaimed funds are burned. Critically, the escrow stores only the SHA-256 hash of the collection CID—never the CID itself—ensuring that content addresses remain private until revealed by an authorized pinner.
 
 ```rust
 struct AccessEscrow {
     purchaser: Pubkey,           // The user buying content (only they can release funds)
     collection: Pubkey,          // The content being bought
+    cid_hash: [u8; 32],          // SHA-256 hash of the collection CID (for verification)
     amount_locked: u64,          // Tokens bought from the pool (50% of purchase), waiting for release
     created_at: i64,             // Timestamp for 24-hour burn timeout logic
+    is_cid_revealed: bool,       // Whether a pinner has revealed the CID
+    bump: u8,
+}
+```
+
+**B.1 CID Reveal**
+
+Stores the encrypted CID message sent by a pinner to the purchaser. Only the purchaser can decrypt this message using their wallet's private key.
+
+```rust
+struct CidReveal {
+    escrow: Pubkey,              // The AccessEscrow this reveal is for
+    pinner: Pubkey,              // The peer who revealed the CID (must be a registered pinner)
+    encrypted_cid: Vec<u8>,      // CID encrypted with purchaser's public key (X25519/ECIES)
+    revealed_at: i64,            // Timestamp of reveal
     bump: u8,
 }
 ```
@@ -189,6 +259,29 @@ struct PeerTrustState {
     last_active: i64,             // For pruning inactive nodes
 }
 ```
+
+### 3.3 Encrypted CID Revelation Scheme
+
+The protocol employs a cryptographic handshake to securely reveal content addresses only to verified purchasers while keeping CIDs private from the public blockchain.
+
+**Cryptographic Primitives:**
+
+- **Hash Function:** SHA-256 for CID commitment (stored in `CollectionState` and `AccessEscrow`).
+- **Asymmetric Encryption:** X25519-XSalsa20-Poly1305 (NaCl/libsodium box) for encrypting CIDs. The purchaser's Ed25519 wallet key is converted to X25519 for encryption/decryption.
+
+**Security Properties:**
+
+1. **Privacy:** The actual IPFS CID is never stored on-chain in plaintext. Only the SHA-256 hash is public.
+2. **Authenticity:** Purchasers verify that `SHA256(decrypted_cid) == escrow.cid_hash`, ensuring the pinner provided the correct content address.
+3. **Non-Repudiation:** The `CidReveal` account is signed by the pinner, creating an on-chain record of who revealed what.
+4. **Purchaser-Only Access:** Only the purchaser's private key can decrypt the CID, preventing unauthorized access.
+
+**Why Not Encrypt Content Instead?**
+
+The protocol encrypts the *address* (CID), not the content itself, for efficiency:
+- IPFS content is naturally deduplicated via content-addressing. Encrypting content would break deduplication.
+- Encrypting CIDs is computationally trivial (< 100 bytes), while encrypting video content would be expensive.
+- The CID acts as a "capability token"—knowing it grants access to fetch from any IPFS node.
 
 **D. Collection Staking Pool**
 
@@ -221,7 +314,11 @@ struct StakerPosition {
 
 ### 4.1 Collection Creation & Minting
 
-- **Initialization:** User calls `create_collection`. The program initializes the `CollectionState` PDA and validates that the `collection_id` is unique.
+- **Initialization:** User calls `create_collection`, providing:
+  - The `collection_id` (unique slug).
+  - The SHA-256 hash of the collection's IPFS CID (`cid_hash`). The actual CID is never stored on-chain.
+  - The creator must have already uploaded the Collection Manifest (containing video CIDs) to IPFS and be actively pinning it.
+- **CID Hash Commitment:** The `cid_hash` is stored in the `CollectionState` PDA. This hash is publicly visible and used by purchasers to verify that pinners reveal the correct CID. The actual content address remains private, known only to the creator and authorized pinners.
 - **Mint & Distribute:**
   - The Program mints the total supply (e.g., 1,000,000 tokens) of the Collection Token.
   - 10% is transferred to the Creator's wallet.
@@ -238,12 +335,35 @@ Unlike traditional models where payment goes directly to a creator, CaptureGem d
 
 **Purchase Flow:**
 
-- **Initiate Purchase:** The user clicks "Watch" or "Buy Access" in the client.
+- **Initiate Purchase:** The user clicks "Watch" or "Buy Access" in the client. The UI displays collection metadata (title, preview, price) but crucially **not** the actual IPFS CID, which remains private until after purchase.
+- **CID Hash Commitment:** The client constructs the purchase transaction including the SHA-256 hash of the collection CID. This hash is publicly known (displayed in the collection listing) but reveals nothing about the actual content address. The purchaser's wallet public key is included for encrypted CID delivery.
 - **DEX Swap:** The client executes a transaction that swaps the user's CAPGM for Collection Tokens via the Orca Pool. This buy pressure increases the value of the creator's held tokens.
 - **Payment Split:** The purchased tokens are split automatically:
   - 50% is transferred to the Collection Ownership Staking Pool where token stakers earn proportional rewards.
-  - 50% is locked in an `AccessEscrow` PDA, awaiting content delivery confirmation.
-- **Authorization:** The existence of a funded `AccessEscrow` account acts as the decryption key. The client sees this on-chain state and begins requesting encrypted chunks from the IPFS swarm.
+  - 50% is locked in an `AccessEscrow` PDA (with the `cid_hash` stored), awaiting content delivery confirmation.
+- **Pinner CID Reveal:** One of the pinners who is actively hosting the collection observes the new `AccessEscrow` on-chain. The pinner:
+  1. Encrypts the collection CID using the purchaser's wallet public key (X25519-XSalsa20-Poly1305 / ECIES).
+  2. Submits a `reveal_cid` transaction that creates a `CidReveal` account containing the encrypted CID bytes.
+  3. Only the purchaser can decrypt this message using their wallet's private key.
+- **Purchaser CID Verification:** Upon receiving the `CidReveal` event, the purchaser's client:
+  1. Decrypts the encrypted CID using their wallet's private key.
+  2. Computes the SHA-256 hash of the decrypted CID.
+  3. Compares this hash against the `cid_hash` stored in their `AccessEscrow` account.
+  4. **If the hashes match:** The CID is authentic, and the client proceeds to download content.
+  5. **If the hashes do not match:** The reveal is rejected as fraudulent, and the client waits for another pinner to provide a valid reveal.
+- **Collection Manifest Structure:** The revealed CID points to a **Collection Manifest Document**—a JSON or CBOR file stored on IPFS that contains the CIDs of all individual videos in the collection. This two-tier structure allows a single purchase to unlock multiple pieces of content:
+  ```json
+  {
+    "collection_id": "cooking-101",
+    "version": 1,
+    "videos": [
+      { "title": "Episode 1", "cid": "Qm...video1", "duration": 1800 },
+      { "title": "Episode 2", "cid": "Qm...video2", "duration": 2100 },
+      { "title": "Episode 3", "cid": "Qm...video3", "duration": 1650 }
+    ]
+  }
+  ```
+- **Content Download:** With the verified collection CID, the client fetches the manifest and then begins requesting the individual video CIDs from the IPFS swarm.
 
 **Collection Token Staking:**
 
@@ -256,11 +376,20 @@ Collection token holders can stake their tokens in a collection-specific staking
 
 This workflow enforces the "Trust-Based" system where payment is conditional on service. The purchaser has complete control over which peers receive payment, creating a meritocratic system where only peers that successfully deliver content are rewarded. Note that peers receive the 50% of the purchase price that was locked in the `AccessEscrow` PDA (the other 50% was already distributed to collection token stakers).
 
+**Pinner Incentive to Reveal CID:**
+
+Pinners are incentivized to monitor the blockchain for new `AccessEscrow` accounts and promptly reveal the CID because:
+- Only peers who are included in the purchaser's final `release_escrow` transaction receive payment.
+- The pinner who reveals the CID establishes a relationship with the purchaser, increasing their chances of being selected for content delivery.
+- Pinners who consistently provide fast, valid CID reveals build on-chain reputation, attracting more purchase traffic.
+- If no pinner reveals the CID within 24 hours, the escrow burns and no one earns—creating urgency for pinners to act.
+
 **The Trust-Based Payment Model:**
 
 The buyer is the ultimate arbiter of which peers deserve payment. This creates strong incentives for peers to provide high-quality, fast, and reliable service:
 
-- **Discovery:** The Purchaser's client uses the IPFS DHT (Distributed Hash Table) to find peers hosting the collection CID.
+- **CID Acquisition:** After a pinner reveals the encrypted CID and the purchaser verifies it (as described in 4.2), the client has the authentic collection CID and can fetch the manifest.
+- **Discovery:** The Purchaser's client uses the IPFS DHT (Distributed Hash Table) to find peers hosting the individual video CIDs listed in the collection manifest.
 - **Connection & Monitoring:** The Purchaser's IPFS Check Tool actively monitors the data stream via the Bitswap protocol. It logs granular accounting data:
   - Peer ID X sent 500MB (Blocks 1-5000).
   - Peer ID Y sent 200MB (Blocks 5001-7000).

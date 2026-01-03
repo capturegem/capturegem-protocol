@@ -25,10 +25,10 @@ pub mod solana_program {
         ctx: Context<CreateCollection>, 
         collection_id: String, 
         name: String, 
-        content_cid: String, 
+        cid_hash: [u8; 32],
         access_threshold_usd: u64
     ) -> Result<()> {
-        instructions::user::create_collection(ctx, collection_id, name, content_cid, access_threshold_usd)
+        instructions::user::create_collection(ctx, collection_id, name, cid_hash, access_threshold_usd)
     }
 
     pub fn buy_access_token(ctx: Context<BuyAccess>) -> Result<()> {

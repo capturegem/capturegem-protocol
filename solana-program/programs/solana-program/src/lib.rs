@@ -25,10 +25,10 @@ pub mod solana_program {
         ctx: Context<CreateCollection>, 
         collection_id: String, 
         name: String, 
-        content_cid: String, 
+        cid_hash: [u8; 32],
         access_threshold_usd: u64
     ) -> Result<()> {
-        instructions::user::create_collection(ctx, collection_id, name, content_cid, access_threshold_usd)
+        instructions::user::create_collection(ctx, collection_id, name, cid_hash, access_threshold_usd)
     }
 
     pub fn mint_collection_tokens(
@@ -45,15 +45,17 @@ pub mod solana_program {
     pub fn create_access_escrow(
         ctx: Context<CreateAccessEscrow>,
         amount_locked: u64,
+        cid_hash: [u8; 32],
     ) -> Result<()> {
-        instructions::access::create_access_escrow(ctx, amount_locked)
+        instructions::access::create_access_escrow(ctx, amount_locked, cid_hash)
     }
 
     pub fn purchase_access(
         ctx: Context<PurchaseAccess>,
         total_amount: u64,
+        cid_hash: [u8; 32],
     ) -> Result<()> {
-        instructions::access::purchase_access(ctx, total_amount)
+        instructions::access::purchase_access(ctx, total_amount, cid_hash)
     }
 
     pub fn release_escrow(
@@ -66,6 +68,13 @@ pub mod solana_program {
 
     pub fn burn_expired_escrow(ctx: Context<BurnExpiredEscrow>) -> Result<()> {
         instructions::access::burn_expired_escrow(ctx)
+    }
+
+    pub fn reveal_cid(
+        ctx: Context<RevealCid>,
+        encrypted_cid: Vec<u8>,
+    ) -> Result<()> {
+        instructions::access::reveal_cid(ctx, encrypted_cid)
     }
 
     pub fn register_collection_host(ctx: Context<RegisterHost>) -> Result<()> {

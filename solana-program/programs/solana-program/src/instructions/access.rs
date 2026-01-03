@@ -60,6 +60,7 @@ pub struct PurchaseAccess<'info> {
 pub fn purchase_access(
     ctx: Context<PurchaseAccess>,
     total_amount: u64,
+    cid_hash: [u8; 32],
 ) -> Result<()> {
     require!(total_amount > 0, ProtocolError::InsufficientFunds);
     require!(total_amount % 2 == 0, ProtocolError::InvalidFeeConfig); // Must be even for clean split
@@ -68,6 +69,12 @@ pub fn purchase_access(
     let access_escrow = &mut ctx.accounts.access_escrow;
     let staking_pool = &mut ctx.accounts.staking_pool;
     let collection = &ctx.accounts.collection;
+
+    // Verify cid_hash matches collection's cid_hash
+    require!(
+        cid_hash == collection.cid_hash,
+        ProtocolError::Unauthorized
+    );
 
     // Calculate 50/50 split
     let amount_to_stakers = total_amount
@@ -85,8 +92,10 @@ pub fn purchase_access(
     // Initialize the escrow (holds 50% for peers)
     access_escrow.purchaser = ctx.accounts.purchaser.key();
     access_escrow.collection = collection.key();
+    access_escrow.cid_hash = cid_hash;
     access_escrow.amount_locked = amount_to_escrow;
     access_escrow.created_at = clock.unix_timestamp;
+    access_escrow.is_cid_revealed = false;
     access_escrow.bump = ctx.bumps.access_escrow;
 
     // Transfer 50% to staking pool
@@ -177,6 +186,7 @@ pub struct CreateAccessEscrow<'info> {
 pub fn create_access_escrow(
     ctx: Context<CreateAccessEscrow>,
     amount_locked: u64,
+    cid_hash: [u8; 32],
 ) -> Result<()> {
     require!(amount_locked > 0, ProtocolError::InsufficientFunds);
 
@@ -184,11 +194,19 @@ pub fn create_access_escrow(
     let access_escrow = &mut ctx.accounts.access_escrow;
     let collection = &ctx.accounts.collection;
 
+    // Verify cid_hash matches collection's cid_hash
+    require!(
+        cid_hash == collection.cid_hash,
+        ProtocolError::Unauthorized
+    );
+
     // Initialize the escrow
     access_escrow.purchaser = ctx.accounts.purchaser.key();
     access_escrow.collection = collection.key();
+    access_escrow.cid_hash = cid_hash;
     access_escrow.amount_locked = amount_locked;
     access_escrow.created_at = clock.unix_timestamp;
+    access_escrow.is_cid_revealed = false;
     access_escrow.bump = ctx.bumps.access_escrow;
 
     // Transfer tokens from purchaser to escrow token account
@@ -493,6 +511,86 @@ pub fn burn_expired_escrow(ctx: Context<BurnExpiredEscrow>) -> Result<()> {
 
     // AccessEscrow account is automatically closed via the close constraint
     // Rent is returned to the caller as an incentive
+
+    Ok(())
+}
+
+// ============================================================================
+// Reveal CID - Pinner encrypts and reveals CID to purchaser
+// ============================================================================
+
+#[derive(Accounts)]
+pub struct RevealCid<'info> {
+    #[account(mut)]
+    pub pinner: Signer<'info>,
+
+    #[account(
+        seeds = [b"collection", collection.owner.as_ref(), collection.collection_id.as_bytes()],
+        bump
+    )]
+    pub collection: Account<'info, CollectionState>,
+
+    /// Access Escrow PDA - must exist and not yet have CID revealed
+    #[account(
+        mut,
+        seeds = [SEED_ACCESS_ESCROW, access_escrow.purchaser.as_ref(), collection.key().as_ref()],
+        bump = access_escrow.bump,
+        constraint = !access_escrow.is_cid_revealed @ ProtocolError::Unauthorized
+    )]
+    pub access_escrow: Account<'info, AccessEscrow>,
+
+    /// CID Reveal PDA - will be created
+    #[account(
+        init,
+        payer = pinner,
+        space = CidReveal::MAX_SIZE,
+        seeds = [SEED_CID_REVEAL, access_escrow.key().as_ref(), pinner.key().as_ref()],
+        bump
+    )]
+    pub cid_reveal: Account<'info, CidReveal>,
+
+    pub system_program: Program<'info, System>,
+    pub clock: Sysvar<'info, Clock>,
+}
+
+/// Pinner reveals the encrypted CID to the purchaser.
+/// The CID is encrypted with the purchaser's public key (X25519-XSalsa20-Poly1305).
+/// Only the purchaser can decrypt it using their private wallet key.
+pub fn reveal_cid(
+    ctx: Context<RevealCid>,
+    encrypted_cid: Vec<u8>,
+) -> Result<()> {
+    require!(!encrypted_cid.is_empty(), ProtocolError::InvalidFeeConfig);
+    require!(encrypted_cid.len() <= 200, ProtocolError::InvalidFeeConfig); // Reasonable limit for encrypted CID
+
+    let cid_reveal = &mut ctx.accounts.cid_reveal;
+    let clock = &ctx.accounts.clock;
+    
+    // Get the escrow key before mutable borrow
+    let escrow_key = ctx.accounts.access_escrow.key();
+    let pinner_key = ctx.accounts.pinner.key();
+    let purchaser_key = ctx.accounts.access_escrow.purchaser;
+    let collection_id = ctx.accounts.collection.collection_id.clone();
+    
+    let access_escrow = &mut ctx.accounts.access_escrow;
+
+    // Initialize the CID reveal
+    cid_reveal.escrow = escrow_key;
+    cid_reveal.pinner = pinner_key;
+    cid_reveal.encrypted_cid = encrypted_cid.clone();
+    cid_reveal.revealed_at = clock.unix_timestamp;
+    cid_reveal.bump = ctx.bumps.cid_reveal;
+
+    // Mark the escrow as having CID revealed
+    access_escrow.is_cid_revealed = true;
+
+    msg!(
+        "CidRevealed: Pinner={} Purchaser={} Collection={} EncryptedCidLength={}",
+        pinner_key,
+        purchaser_key,
+        collection_id,
+        encrypted_cid.len()
+    );
 
     Ok(())
 }

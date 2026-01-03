@@ -6,7 +6,7 @@ use crate::errors::ProtocolError;
 use crate::constants::*;
 
 #[derive(Accounts)]
-#[instruction(collection_id: String, name: String, content_cid: String, access_threshold_usd: u64)]
+#[instruction(collection_id: String, name: String, cid_hash: [u8; 32], access_threshold_usd: u64)]
 pub struct CreateCollection<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
@@ -53,18 +53,19 @@ pub fn create_collection(
     ctx: Context<CreateCollection>,
     collection_id: String,
     name: String,
-    content_cid: String,
+    cid_hash: [u8; 32],
     access_threshold_usd: u64,
 ) -> Result<()> {
     require!(collection_id.len() <= MAX_ID_LEN, ProtocolError::StringTooLong);
     require!(name.len() <= MAX_NAME_LEN, ProtocolError::StringTooLong);
-    require!(content_cid.len() <= MAX_URL_LEN, ProtocolError::StringTooLong);
 
     let clock = &ctx.accounts.clock;
     let collection = &mut ctx.accounts.collection;
     
-    collection.owner = ctx.accounts.owner.key();
-    collection.collection_id = collection_id;
+    let owner_key = ctx.accounts.owner.key();
+    collection.owner = owner_key;
+    collection.collection_id = collection_id.clone();
+    collection.cid_hash = cid_hash;
     collection.mint = ctx.accounts.mint.key();
     collection.pool_address = ctx.accounts.pool_address.key();
     collection.claim_vault = ctx.accounts.claim_vault.key();
@@ -74,7 +75,7 @@ pub fn create_collection(
     collection.total_trust_score = 0;
     collection.is_blacklisted = false;
     collection.name = name;
-    collection.content_cid = content_cid;
+    collection.content_cid = String::from(""); // Deprecated field, kept for backward compatibility
     collection.access_threshold_usd = access_threshold_usd;
     collection.oracle_feed = ctx.accounts.oracle_feed.key();
     
@@ -90,6 +91,12 @@ pub fn create_collection(
     // Mint is automatically created and initialized by Anchor's init constraint
     // The mint authority is set to the collection PDA, which allows the collection
     // to control minting and freezing of tokens
+
+    msg!(
+        "CollectionCreated: ID={} Owner={} CidHashSet=true",
+        collection_id,
+        owner_key
+    );
 
     Ok(())
 }

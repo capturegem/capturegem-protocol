@@ -38,6 +38,7 @@ impl UserAccount {
 pub struct CollectionState {
     pub owner: Pubkey,      // Collection owner (matches design)
     pub collection_id: String, // Unique slug (e.g., "cooking-101")
+    pub cid_hash: [u8; 32],  // SHA-256 hash of the collection IPFS CID (not the CID itself)
     pub mint: Pubkey,        // The Collection Token Mint address
     pub pool_address: Pubkey, // The specific Orca Whirlpool/Pool Address
     pub claim_vault: Pubkey,  // PDA holding the 10% reserve
@@ -45,7 +46,7 @@ pub struct CollectionState {
     pub total_trust_score: u64, // Aggregate reliability of this collection's swarm
     pub is_blacklisted: bool,  // Moderator toggle for illegal content
     pub name: String,
-    pub content_cid: String,   // IPFS CID
+    pub content_cid: String,   // IPFS CID - DEPRECATED: Use cid_hash for privacy
     pub access_threshold_usd: u64, // In USD cents (e.g. 1000 = $10.00)
     pub oracle_feed: Pubkey,   // Price feed for this specific Collection Token
     
@@ -60,7 +61,7 @@ pub struct CollectionState {
 }
 
 impl CollectionState {
-    pub const MAX_SIZE: usize = 8 + 32 + MAX_ID_LEN + 32 + 32 + 32 + 8 + 8 + 1 + MAX_NAME_LEN + MAX_URL_LEN + 8 + 32 + 8 + 8 + 8 + 8 + 8 + 16 + 1;
+    pub const MAX_SIZE: usize = 8 + 32 + MAX_ID_LEN + 32 + 32 + 32 + 32 + 8 + 8 + 1 + MAX_NAME_LEN + MAX_URL_LEN + 8 + 32 + 8 + 8 + 8 + 8 + 8 + 16 + 1;
 }
 
 #[account]
@@ -75,13 +76,29 @@ pub struct ViewRights {
 pub struct AccessEscrow {
     pub purchaser: Pubkey,       // The user buying content (only they can release funds)
     pub collection: Pubkey,       // The content being bought
+    pub cid_hash: [u8; 32],      // SHA-256 hash of the collection CID (for verification)
     pub amount_locked: u64,       // Tokens (50% of purchase), waiting for release to peers
     pub created_at: i64,          // Timestamp for 24-hour burn timeout logic
+    pub is_cid_revealed: bool,    // Whether a pinner has revealed the CID
     pub bump: u8,
 }
 
 impl AccessEscrow {
-    pub const MAX_SIZE: usize = 8 + 32 + 32 + 8 + 8 + 1;
+    pub const MAX_SIZE: usize = 8 + 32 + 32 + 32 + 8 + 8 + 1 + 1;
+}
+
+#[account]
+pub struct CidReveal {
+    pub escrow: Pubkey,              // The AccessEscrow this reveal is for
+    pub pinner: Pubkey,              // The peer who revealed the CID (must be a registered pinner)
+    pub encrypted_cid: Vec<u8>,      // CID encrypted with purchaser's public key (X25519-XSalsa20-Poly1305)
+    pub revealed_at: i64,            // Timestamp of reveal
+    pub bump: u8,
+}
+
+impl CidReveal {
+    // 8 (discriminator) + 32 (escrow) + 32 (pinner) + 4 (vec length) + 200 (encrypted CID, typically ~100 bytes) + 8 (timestamp) + 1 (bump)
+    pub const MAX_SIZE: usize = 8 + 32 + 32 + 4 + 200 + 8 + 1;
 }
 
 #[account]
