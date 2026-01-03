@@ -165,7 +165,7 @@ export class AccessClient {
     // Build purchase transaction
     const tx = await this.program.methods
       .purchaseAccess(totalAmount, Array.from(cidHash))
-      .accounts({
+      .accountsPartial({
         purchaser,
         collection: collectionPubkey,
         stakingPool: stakingPoolPDA,
@@ -330,15 +330,27 @@ export class AccessClient {
     const cidReveal = await this.waitForCIDReveal(purchase.accessEscrow);
     
     // Step 3: Fetch escrow data
-    const accessEscrow = await this.program.account.accessEscrow.fetch(
+    const accessEscrowAccount = await this.program.account.accessEscrow.fetch(
       purchase.accessEscrow
     );
+    
+    // Convert to AccessEscrow interface format
+    const accessEscrow: AccessEscrow = {
+      purchaser: accessEscrowAccount.purchaser,
+      collection: accessEscrowAccount.collection,
+      accessNftMint: accessEscrowAccount.accessNftMint,
+      cidHash: new Uint8Array(accessEscrowAccount.cidHash),
+      amountLocked: accessEscrowAccount.amountLocked,
+      createdAt: accessEscrowAccount.createdAt,
+      isCidRevealed: accessEscrowAccount.isCidRevealed,
+      bump: accessEscrowAccount.bump,
+    };
     
     // Step 4: Decrypt and verify
     console.log("3️⃣  Decrypting and verifying CID...");
     const revealed = this.decryptAndVerifyCID(
       cidReveal,
-      accessEscrow as AccessEscrow,
+      accessEscrow,
       purchaserKeypair
     );
     
@@ -389,7 +401,7 @@ export class AccessClient {
       throw new Error(`Failed to fetch manifest: ${response.statusText}`);
     }
     
-    const manifest: CollectionManifest = await response.json();
+    const manifest = await response.json() as CollectionManifest;
     
     console.log(`📦 Collection manifest loaded: ${manifest.videos.length} videos`);
     

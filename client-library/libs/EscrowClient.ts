@@ -212,10 +212,14 @@ export class EscrowClient {
     // Build burn transaction
     const tx = await this.program.methods
       .burnExpiredEscrow()
-      .accounts({
+      .accountsPartial({
         caller: callerKeypair.publicKey,
+        collection: escrowAccount.collection,
+        accessEscrow: accessEscrowPubkey,
         escrowTokenAccount,
+        collectionMint: collectionState.mint,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
+        clock: SYSVAR_CLOCK_PUBKEY,
       })
       .signers([callerKeypair])
       .rpc();

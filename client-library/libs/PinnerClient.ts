@@ -184,7 +184,7 @@ export class PinnerClient {
     // Submit reveal_cid transaction
     const tx = await this.program.methods
       .revealCid(Buffer.from(encryptedCID))
-      .accounts({
+      .accountsPartial({
         pinner: pinnerKeypair.publicKey,
         collection: accessEscrow.collection,
         accessEscrow: accessEscrowPubkey,
@@ -387,7 +387,7 @@ export class PinnerClient {
           );
           
           const notification: PurchaseNotification = {
-            accessEscrow: context.accountId,
+            accessEscrow: accountInfo.accountId,
             purchaser: account.purchaser,
             collection: account.collection,
             collectionId: collectionState.collectionId,

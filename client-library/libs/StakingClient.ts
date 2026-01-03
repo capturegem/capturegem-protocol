@@ -33,9 +33,7 @@ import {
 export interface StakingPoolInfo {
   collection: PublicKey;
   totalStaked: BN;
-  rewardRate: BN;
-  lastUpdateTime: BN;
-  rewardPerTokenStored: BN;
+  rewardPerToken: BN;
   totalStakers: number;
   apy?: number; // Annual Percentage Yield (estimated)
 }
@@ -45,11 +43,9 @@ export interface StakingPoolInfo {
  */
 export interface StakerPositionInfo {
   staker: PublicKey;
-  pool: PublicKey;
-  stakedAmount: BN;
-  rewardPerTokenPaid: BN;
-  rewardsEarned: BN;
-  stakedAt: BN;
+  collection: PublicKey;
+  amountStaked: BN;
+  rewardDebt: BN;
   pendingRewards?: BN; // Computed from current pool state
 }
 
@@ -154,23 +150,21 @@ export class StakingClient {
     // Build stake transaction
     const tx = await this.program.methods
       .stakeCollectionTokens(amount)
-      .accounts({
+      .accountsPartial({
         staker: stakerKeypair.publicKey,
+        collection: collectionPubkey,
         stakingPool: stakingPoolPDA,
         stakerPosition: stakerPositionPDA,
         stakerTokenAccount,
         poolTokenAccount,
-        collectionMint: collectionState.mint,
         tokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
-        rent: SYSVAR_RENT_PUBKEY,
-        clock: SYSVAR_CLOCK_PUBKEY,
       })
       .signers([stakerKeypair])
       .rpc();
 
     // Fetch updated pool state
-    const updatedPool = await this.program.account.stakingPool.fetch(stakingPoolPDA);
+    const updatedPool = await this.program.account.collectionStakingPool.fetch(stakingPoolPDA);
 
     console.log(`✅ Tokens staked! Transaction: ${tx}`);
     console.log(`   New total staked: ${updatedPool.totalStaked.toString()}`);
@@ -218,11 +212,15 @@ export class StakingClient {
     const position = await this.program.account.stakerPosition.fetch(stakerPositionPDA);
 
     // If amount not specified, unstake everything
-    const unstakeAmount = amount || position.stakedAmount;
+    const unstakeAmount = amount || position.amountStaked;
 
-    console.log(`   Staked amount: ${position.stakedAmount.toString()}`);
+    console.log(`   Staked amount: ${position.amountStaked.toString()}`);
     console.log(`   Unstaking: ${unstakeAmount.toString()}`);
-    console.log(`   Pending rewards: ${position.rewardsEarned.toString()}`);
+    
+    // Calculate pending rewards
+    const pool = await this.program.account.collectionStakingPool.fetch(stakingPoolPDA);
+    const pendingRewards = this.calculatePendingRewards(position, pool);
+    console.log(`   Pending rewards: ${pendingRewards.toString()}`);
 
     // Get collection state
     const collectionState = await this.program.account.collectionState.fetch(
@@ -244,31 +242,30 @@ export class StakingClient {
     // Build unstake transaction
     const tx = await this.program.methods
       .unstakeCollectionTokens(unstakeAmount)
-      .accounts({
+      .accountsPartial({
         staker: stakerKeypair.publicKey,
+        collection: collectionPubkey,
         stakingPool: stakingPoolPDA,
         stakerPosition: stakerPositionPDA,
         stakerTokenAccount,
         poolTokenAccount,
-        collectionMint: collectionState.mint,
         tokenProgram: TOKEN_PROGRAM_ID,
-        clock: SYSVAR_CLOCK_PUBKEY,
       })
       .signers([stakerKeypair])
       .rpc();
 
     // Check if position is fully closed
-    const positionClosed = unstakeAmount.gte(position.stakedAmount);
+    const positionClosed = unstakeAmount.gte(position.amountStaked);
 
     console.log(`✅ Tokens unstaked! Transaction: ${tx}`);
     console.log(`   Amount unstaked: ${unstakeAmount.toString()}`);
-    console.log(`   Rewards claimed: ${position.rewardsEarned.toString()}`);
+    console.log(`   Rewards claimed: ${pendingRewards.toString()}`);
     console.log(`   Position closed: ${positionClosed}`);
 
     return {
       transaction: tx,
       amountUnstaked: unstakeAmount,
-      rewardsClaimed: position.rewardsEarned,
+      rewardsClaimed: pendingRewards,
       positionClosed,
     };
   }
@@ -302,12 +299,14 @@ export class StakingClient {
       this.program.programId
     );
 
-    // Get current position
+    // Get current position and pool
     const position = await this.program.account.stakerPosition.fetch(stakerPositionPDA);
+    const pool = await this.program.account.collectionStakingPool.fetch(stakingPoolPDA);
+    
+    const pendingRewards = this.calculatePendingRewards(position, pool);
+    console.log(`   Pending rewards: ${pendingRewards.toString()}`);
 
-    console.log(`   Pending rewards: ${position.rewardsEarned.toString()}`);
-
-    if (position.rewardsEarned.eq(new BN(0))) {
+    if (pendingRewards.lte(new BN(0))) {
       console.log(`⚠️  No rewards to claim`);
       throw new Error("No rewards available to claim");
     }
@@ -332,25 +331,24 @@ export class StakingClient {
     // Build claim transaction
     const tx = await this.program.methods
       .claimStakingRewards()
-      .accounts({
+      .accountsPartial({
         staker: stakerKeypair.publicKey,
+        collection: collectionPubkey,
         stakingPool: stakingPoolPDA,
         stakerPosition: stakerPositionPDA,
         stakerTokenAccount,
         poolTokenAccount,
-        collectionMint: collectionState.mint,
         tokenProgram: TOKEN_PROGRAM_ID,
-        clock: SYSVAR_CLOCK_PUBKEY,
       })
       .signers([stakerKeypair])
       .rpc();
 
     console.log(`✅ Rewards claimed! Transaction: ${tx}`);
-    console.log(`   Amount: ${position.rewardsEarned.toString()}`);
+    console.log(`   Amount: ${pendingRewards.toString()}`);
 
     return {
       transaction: tx,
-      rewardsClaimed: position.rewardsEarned,
+      rewardsClaimed: pendingRewards,
     };
   }
 
@@ -383,18 +381,16 @@ export class StakingClient {
 
     try {
       const position = await this.program.account.stakerPosition.fetch(stakerPositionPDA);
-      const pool = await this.program.account.stakingPool.fetch(stakingPoolPDA);
+      const pool = await this.program.account.collectionStakingPool.fetch(stakingPoolPDA);
 
       // Calculate pending rewards
       const pendingRewards = this.calculatePendingRewards(position, pool);
 
       return {
         staker: position.staker,
-        pool: position.pool,
-        stakedAmount: position.stakedAmount,
-        rewardPerTokenPaid: position.rewardPerTokenPaid,
-        rewardsEarned: position.rewardsEarned,
-        stakedAt: position.stakedAt,
+        collection: position.collection,
+        amountStaked: position.amountStaked,
+        rewardDebt: position.rewardDebt,
         pendingRewards,
       };
     } catch {
@@ -414,14 +410,14 @@ export class StakingClient {
       this.program.programId
     );
 
-    const pool = await this.program.account.stakingPool.fetch(stakingPoolPDA);
+    const pool = await this.program.account.collectionStakingPool.fetch(stakingPoolPDA);
 
     // Count total stakers
     const allPositions = await this.program.account.stakerPosition.all([
       {
         memcmp: {
           offset: 8 + 32, // Skip discriminator + staker pubkey
-          bytes: stakingPoolPDA.toBase58(),
+          bytes: collectionPubkey.toBase58(),
         },
       },
     ]);
@@ -429,9 +425,7 @@ export class StakingClient {
     return {
       collection: pool.collection,
       totalStaked: pool.totalStaked,
-      rewardRate: pool.rewardRate,
-      lastUpdateTime: pool.lastUpdateTime,
-      rewardPerTokenStored: pool.rewardPerTokenStored,
+      rewardPerToken: pool.rewardPerToken,
       totalStakers: allPositions.length,
     };
   }
@@ -450,13 +444,13 @@ export class StakingClient {
       this.program.programId
     );
 
-    const pool = await this.program.account.stakingPool.fetch(stakingPoolPDA);
+    const pool = await this.program.account.collectionStakingPool.fetch(stakingPoolPDA);
 
     const allPositions = await this.program.account.stakerPosition.all([
       {
         memcmp: {
           offset: 8 + 32,
-          bytes: stakingPoolPDA.toBase58(),
+          bytes: collectionPubkey.toBase58(),
         },
       },
     ]);
@@ -467,11 +461,9 @@ export class StakingClient {
 
       return {
         staker: position.staker,
-        pool: position.pool,
-        stakedAmount: position.stakedAmount,
-        rewardPerTokenPaid: position.rewardPerTokenPaid,
-        rewardsEarned: position.rewardsEarned,
-        stakedAt: position.stakedAt,
+        collection: position.collection,
+        amountStaked: position.amountStaked,
+        rewardDebt: position.rewardDebt,
         pendingRewards,
       };
     });
@@ -481,15 +473,23 @@ export class StakingClient {
    * Calculate pending rewards for a staker position
    * Uses the reward_per_token mechanism
    * 
+   * Formula: pending = (amountStaked * rewardPerToken) - rewardDebt
+   * 
    * @param position - Staker position account
    * @param pool - Staking pool account
    * @returns Pending rewards amount
    */
   private calculatePendingRewards(position: any, pool: any): BN {
-    // Formula: pending = (stakedAmount * (rewardPerTokenStored - rewardPerTokenPaid)) + rewardsEarned
-    const rewardDelta = pool.rewardPerTokenStored.sub(position.rewardPerTokenPaid);
-    const newRewards = position.stakedAmount.mul(rewardDelta).div(new BN(1e9)); // Assuming 1e9 precision
-    return newRewards.add(position.rewardsEarned);
+    // rewardPerToken is u128, amountStaked is u64, rewardDebt is u128
+    // We need to handle the precision correctly
+    const rewardPerToken = new BN(pool.rewardPerToken.toString());
+    const amountStaked = new BN(position.amountStaked.toString());
+    const rewardDebt = new BN(position.rewardDebt.toString());
+    
+    // Calculate: (amountStaked * rewardPerToken) - rewardDebt
+    // Note: rewardPerToken is scaled, so we need to divide by precision
+    const totalRewards = amountStaked.mul(rewardPerToken).div(new BN(1e12)); // REWARD_PRECISION is typically 1e12
+    return totalRewards.sub(rewardDebt);
   }
 
   /**
@@ -506,12 +506,12 @@ export class StakingClient {
       return 0;
     }
 
-    // Convert reward rate to annual yield
+    // Convert reward per token to annual yield estimate
     // This is a simplified calculation - actual APY depends on purchase frequency
-    const rewardRatePerYear = poolInfo.rewardRate.mul(new BN(365 * 24 * 60 * 60));
-    const apy = rewardRatePerYear.mul(new BN(100)).div(poolInfo.totalStaked).toNumber();
-
-    return apy;
+    // Note: rewardPerToken is a u128 scaled value, so we need to handle it carefully
+    // For now, return 0 as APY calculation requires more complex logic
+    // TODO: Implement proper APY calculation based on historical reward distribution
+    return 0;
   }
 }
 

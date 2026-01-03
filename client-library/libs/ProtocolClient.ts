@@ -47,11 +47,11 @@ export class ProtocolClient {
         cidHash,
         new anchor.BN(accessThresholdUsd)
       )
-      .accounts({
+      .accountsPartial({
         owner: owner,
         oracleFeed: oracleFeed,
-        // collection PDA is auto-resolved by Anchor
-        // mint, token_program, system_program, rent are handled by Anchor
+        // collection, mint, claimVault, poolAddress are PDAs auto-resolved by Anchor
+        // tokenProgram, systemProgram, clock, rent are handled by Anchor
       })
       .transaction();
 

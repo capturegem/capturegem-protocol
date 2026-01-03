@@ -466,7 +466,7 @@ export class IntegratedWorkflow {
     return {
       staked: stakeAmount,
       rewardsClaimed: totalRewardsClaimed,
-      finalStaked: finalPosition?.stakedAmount || stakeAmount,
+      finalStaked: finalPosition?.amountStaked || stakeAmount,
     };
   }
 
