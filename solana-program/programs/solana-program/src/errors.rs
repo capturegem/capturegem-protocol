@@ -36,4 +36,6 @@ pub enum ProtocolError {
     InsufficientInitialLiquidity,
     #[msg("Invalid account provided.")]
     InvalidAccount,
+    #[msg("Peer list length exceeds maximum allowed limit.")]
+    PeerListTooLong,
 }

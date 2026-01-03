@@ -13,6 +13,20 @@ use crate::errors::ProtocolError;
 use crate::constants::*;
 
 // ============================================================================
+// Events
+// ============================================================================
+
+#[event]
+pub struct EscrowReleasedEvent {
+    pub purchaser: Pubkey,
+    pub collection: Pubkey,
+    pub total_amount: u64,
+    pub peer_wallets: Vec<Pubkey>,
+    pub peer_weights: Vec<u64>,
+    pub timestamp: i64,
+}
+
+// ============================================================================
 // Purchase Access - Creates escrow with 50/50 split
 // ============================================================================
 
@@ -505,6 +519,12 @@ pub fn release_escrow<'info>(
         ProtocolError::InvalidFeeConfig
     );
 
+    // Validate peer list length to prevent computation budget issues
+    require!(
+        peer_wallets.len() <= MAX_PEER_LIST_LENGTH,
+        ProtocolError::PeerListTooLong
+    );
+
     let access_escrow = &mut ctx.accounts.access_escrow;
     let clock = &ctx.accounts.clock;
 
@@ -706,6 +726,16 @@ pub fn release_escrow<'info>(
         peer_wallets.len()
     );
 
+    // Emit event for off-chain indexer to track peer performance history
+    emit!(EscrowReleasedEvent {
+        purchaser: ctx.accounts.purchaser.key(),
+        collection: collection_key,
+        total_amount: amount_locked,
+        peer_wallets: peer_wallets.clone(),
+        peer_weights: peer_weights.clone(),
+        timestamp: clock.unix_timestamp,
+    });
+
     Ok(())
 }
 
@@ -883,6 +913,52 @@ pub fn reveal_cid(
         purchaser_key,
         collection_id,
         encrypted_cid.len()
+    );
+
+    Ok(())
+}
+
+// ============================================================================
+// Initialize Peer Trust State
+// ============================================================================
+
+#[derive(Accounts)]
+pub struct InitializePeerTrustState<'info> {
+    /// The peer whose trust state is being initialized (pays rent)
+    #[account(mut)]
+    pub peer: Signer<'info>,
+
+    #[account(
+        init,
+        payer = peer,
+        space = PeerTrustState::MAX_SIZE,
+        seeds = [SEED_PEER_TRUST, peer.key().as_ref()],
+        bump
+    )]
+    pub peer_trust_state: Account<'info, PeerTrustState>,
+
+    pub system_program: Program<'info, System>,
+    pub clock: Sysvar<'info, Clock>,
+}
+
+/// Initializes a PeerTrustState account for a peer.
+/// This allows new peers to start building their trust score.
+/// The peer must sign this transaction and pay the rent for account creation.
+/// This account must be initialized before a peer can accumulate trust_score
+/// through the release_escrow instruction.
+pub fn initialize_peer_trust_state(ctx: Context<InitializePeerTrustState>) -> Result<()> {
+    let peer_trust_state = &mut ctx.accounts.peer_trust_state;
+    let clock = &ctx.accounts.clock;
+
+    peer_trust_state.peer_wallet = ctx.accounts.peer.key();
+    peer_trust_state.total_successful_serves = 0;
+    peer_trust_state.trust_score = 0;
+    peer_trust_state.last_active = clock.unix_timestamp;
+
+    msg!(
+        "PeerTrustState initialized: Peer={} TrustScore={}",
+        peer_trust_state.peer_wallet,
+        peer_trust_state.trust_score
     );
 
     Ok(())

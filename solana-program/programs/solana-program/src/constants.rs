@@ -68,3 +68,9 @@ pub const MIN_INITIAL_CAPGM_LIQUIDITY: u64 = 50_000_000; // 50 CAPGM tokens (6 d
 // Note: This acts as a "Cost of Business" to prevent spam while remaining
 // accessible for serious creators. Creator can recover this via their 10%
 // allocation appreciation and staking rewards.
+
+// Peer List Limits
+// Maximum number of peers that can be paid in a single release_escrow transaction
+// This prevents hitting Solana's computation budget (CU limit) when iterating
+// and updating multiple PeerTrustState PDAs
+pub const MAX_PEER_LIST_LENGTH: usize = 20;

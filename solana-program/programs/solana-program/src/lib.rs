@@ -78,6 +78,10 @@ pub mod solana_program {
         instructions::access::reveal_cid(ctx, encrypted_cid)
     }
 
+    pub fn initialize_peer_trust_state(ctx: Context<InitializePeerTrustState>) -> Result<()> {
+        instructions::access::initialize_peer_trust_state(ctx)
+    }
+
     pub fn register_collection_host(ctx: Context<RegisterHost>) -> Result<()> {
         instructions::pinner::register_collection_host(ctx)
     }
