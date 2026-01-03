@@ -1,4 +1,4 @@
-// library-source/examples/pinner-flow-example.ts
+// client-library/examples/pinner-flow-example.ts
 
 /**
  * Example: Complete pinner flow

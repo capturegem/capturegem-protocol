@@ -1,4 +1,4 @@
-// library-source/examples/orca-workflow-example.ts
+// client-library/examples/orca-workflow-example.ts
 import * as anchor from "@coral-xyz/anchor";
 import { PublicKey, Keypair } from "@solana/web3.js";
 import { OrcaClient } from "../libs/OrcaClient";

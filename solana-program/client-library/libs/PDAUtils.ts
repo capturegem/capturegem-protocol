@@ -1,4 +1,4 @@
-// library-source/libs/PDAUtils.ts
+// client-library/libs/PDAUtils.ts
 
 /**
  * PDAUtils - Program Derived Address utility functions

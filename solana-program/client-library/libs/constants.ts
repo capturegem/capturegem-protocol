@@ -1,4 +1,4 @@
-// library-source/libs/constants.ts
+// client-library/libs/constants.ts
 
 /**
  * Constants for CaptureGem Protocol Client Library

@@ -1,4 +1,4 @@
-// library-source/libs/CollectionManifestBuilder.ts
+// client-library/libs/CollectionManifestBuilder.ts
 
 /**
  * CollectionManifestBuilder - Utility for creating and managing collection manifests

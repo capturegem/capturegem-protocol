@@ -1,4 +1,4 @@
-// library-source/libs/CryptoUtils.ts
+// client-library/libs/CryptoUtils.ts
 
 /**
  * Cryptographic utilities for CID encryption/decryption and hash verification

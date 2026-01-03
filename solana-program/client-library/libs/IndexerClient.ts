@@ -1,4 +1,4 @@
-// library-source/libs/IndexerClient.ts
+// client-library/libs/IndexerClient.ts
 import axios, { AxiosInstance } from "axios";
 import { PublicKey } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";

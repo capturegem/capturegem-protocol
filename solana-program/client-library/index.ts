@@ -1,4 +1,4 @@
-// library-source/index.ts
+// client-library/index.ts
 
 /**
  * CaptureGem Protocol - Client Library
@@ -24,6 +24,9 @@ export { ModerationClient } from "./libs/ModerationClient";
 
 // NEW: Infrastructure clients
 export { IPFSTrustMonitor } from "./libs/IPFSTrustMonitor";
+
+// NEW: Integrated workflows (high-level orchestration)
+export { IntegratedWorkflow } from "./libs/IntegratedWorkflow";
 
 // Crypto utilities
 export * from "./libs/CryptoUtils";

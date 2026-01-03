@@ -1,4 +1,4 @@
-// library-source/libs/AccessClient.ts
+// client-library/libs/AccessClient.ts
 
 /**
  * AccessClient - Client library for purchasers to buy access and decrypt CIDs
@@ -21,6 +21,7 @@ import {
 } from "@solana/web3.js";
 import { Program, BN, AnchorProvider } from "@coral-xyz/anchor";
 import { TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
+import { SolanaProgram } from "../../target/types/solana_program";
 import {
   decryptCID,
   verifyCIDHash,
@@ -88,7 +89,7 @@ export interface RevealedCID {
 
 export class AccessClient {
   constructor(
-    private program: Program,
+    private program: Program<SolanaProgram>,
     private connection: Connection,
     private provider: AnchorProvider
   ) {}

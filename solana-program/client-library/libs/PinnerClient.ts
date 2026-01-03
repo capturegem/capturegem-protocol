@@ -1,4 +1,4 @@
-// library-source/libs/PinnerClient.ts
+// client-library/libs/PinnerClient.ts
 
 /**
  * PinnerClient - Client library for pinners to monitor purchases and reveal CIDs
@@ -19,6 +19,7 @@ import {
 } from "@solana/web3.js";
 import { Program, BN, AnchorProvider } from "@coral-xyz/anchor";
 import { TOKEN_2022_PROGRAM_ID, getAccount } from "@solana/spl-token";
+import { SolanaProgram } from "../../target/types/solana_program";
 import {
   encryptCID,
   verifyAccessProofMessage,
@@ -66,7 +67,7 @@ export class PinnerClient {
   private cacheExpirySeconds = 30;
 
   constructor(
-    private program: Program,
+    private program: Program<SolanaProgram>,
     private connection: Connection,
     private provider: AnchorProvider
   ) {}
@@ -182,7 +183,7 @@ export class PinnerClient {
     
     // Submit reveal_cid transaction
     const tx = await this.program.methods
-      .revealCid(Array.from(encryptedCID))
+      .revealCid(Buffer.from(encryptedCID))
       .accounts({
         pinner: pinnerKeypair.publicKey,
         collection: accessEscrow.collection,

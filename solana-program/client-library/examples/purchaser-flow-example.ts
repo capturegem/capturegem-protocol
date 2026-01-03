@@ -1,4 +1,4 @@
-// library-source/examples/purchaser-flow-example.ts
+// client-library/examples/purchaser-flow-example.ts
 
 /**
  * Example: Complete purchaser flow

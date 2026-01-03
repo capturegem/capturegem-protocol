@@ -1,4 +1,4 @@
-// library-source/libs/WalletManager.ts
+// client-library/libs/WalletManager.ts
 import * as web3 from "@solana/web3.js";
 import * as fssh from "fs"; // Assuming node environment
 import * as path from "path";

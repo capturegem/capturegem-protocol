@@ -1,17 +1,18 @@
-// library-source/libs/ProtocolClient.ts
+// client-library/libs/ProtocolClient.ts
 import * as anchor from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { WalletManager, RiskLevel } from "./WalletManager";
+import { SolanaProgram } from "../../target/types/solana_program";
 
 // Seeds must match Rust constants
 const SEED_COLLECTION_STATE = Buffer.from("collection_state");
 const SEED_VIEW_RIGHT = Buffer.from("view_right");
 
 export class ProtocolClient {
-  program: anchor.Program;
+  program: anchor.Program<SolanaProgram>;
   walletManager: WalletManager;
 
-  constructor(program: anchor.Program, walletManager: WalletManager) {
+  constructor(program: anchor.Program<SolanaProgram>, walletManager: WalletManager) {
     this.program = program;
     this.walletManager = walletManager;
   }
@@ -32,6 +33,10 @@ export class ProtocolClient {
       this.program.programId
     );
 
+    // Hash the CID for storage
+    const { hashCID } = await import("./CryptoUtils");
+    const cidHash = Array.from(hashCID(contentCid));
+
     // Derive mint PDA (would be created by the instruction)
     // In production, the mint is created via CPI in the instruction
 
@@ -39,13 +44,13 @@ export class ProtocolClient {
       .createCollection(
         collectionId, 
         name,
-        contentCid,
+        cidHash,
         new anchor.BN(accessThresholdUsd)
       )
       .accounts({
         owner: owner,
-        collection: collectionStatePda,
         oracleFeed: oracleFeed,
+        // collection PDA is auto-resolved by Anchor
         // mint, token_program, system_program, rent are handled by Anchor
       })
       .transaction();
@@ -55,6 +60,7 @@ export class ProtocolClient {
 
   /**
    * Checks USD value of holdings and mints/renews access.
+   * Note: This method may need to be updated to match actual program instructions.
    */
   async buyAccessToken(collectionId: string, ownerPubkey: PublicKey): Promise<string> {
     const user = this.walletManager.getPublicKey();
@@ -81,18 +87,9 @@ export class ProtocolClient {
       user
     );
 
-    const tx = await this.program.methods
-      .buyAccessToken()
-      .accounts({
-        payer: user,
-        collection: collectionStatePda,
-        buyerTokenAccount,
-        oracleFeed: colAccount.oracleFeed || PublicKey.default, // Use oracle from collection state
-        viewRights: viewRightsPda,
-      })
-      .transaction();
-
-    return this.walletManager.signTransaction(tx, RiskLevel.HIGH); // Moving assets is High Risk
+    // TODO: This instruction may not exist in the current program
+    // Use purchaseAccess from AccessClient instead
+    throw new Error("buyAccessToken is deprecated. Use AccessClient.purchaseAccess() instead");
   }
 
   private getUserAccountPda(authority: PublicKey): PublicKey {

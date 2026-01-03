@@ -1,4 +1,4 @@
-// library-source/libs/EscrowClient.ts
+// client-library/libs/EscrowClient.ts
 
 /**
  * EscrowClient - Client library for managing access escrow operations
@@ -18,6 +18,7 @@ import {
 } from "@solana/web3.js";
 import { Program, BN, AnchorProvider } from "@coral-xyz/anchor";
 import { TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
+import { SolanaProgram } from "../../target/types/solana_program";
 
 /**
  * Pinner payment distribution
@@ -49,7 +50,7 @@ export interface EscrowReleaseResult {
 
 export class EscrowClient {
   constructor(
-    private program: Program,
+    private program: Program<SolanaProgram>,
     private connection: Connection,
     private provider: AnchorProvider
   ) {}
@@ -132,13 +133,8 @@ export class EscrowClient {
       )
       .accounts({
         purchaser: purchaserKeypair.publicKey,
-        collection: escrowAccount.collection,
-        accessEscrow: accessEscrowPubkey,
         escrowTokenAccount,
-        collectionMint: collectionState.mint,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-        clock: SYSVAR_CLOCK_PUBKEY,
       })
       // Add remaining accounts for pinners and their trust states
       .remainingAccounts([
@@ -218,12 +214,8 @@ export class EscrowClient {
       .burnExpiredEscrow()
       .accounts({
         caller: callerKeypair.publicKey,
-        collection: escrowAccount.collection,
-        accessEscrow: accessEscrowPubkey,
         escrowTokenAccount,
-        collectionMint: collectionState.mint,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
-        clock: SYSVAR_CLOCK_PUBKEY,
       })
       .signers([callerKeypair])
       .rpc();

@@ -1,4 +1,4 @@
-// library-source/libs/OrcaClient.ts
+// client-library/libs/OrcaClient.ts
 import * as anchor from "@coral-xyz/anchor";
 import {
   PublicKey,

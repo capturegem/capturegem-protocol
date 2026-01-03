@@ -1,4 +1,4 @@
-// library-source/libs/StakingClient.ts
+// client-library/libs/StakingClient.ts
 
 /**
  * StakingClient - Client library for collection token staking operations
@@ -19,6 +19,7 @@ import {
   SYSVAR_RENT_PUBKEY,
 } from "@solana/web3.js";
 import { Program, BN, AnchorProvider } from "@coral-xyz/anchor";
+import { SolanaProgram } from "../../target/types/solana_program";
 import {
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
@@ -82,7 +83,7 @@ export interface ClaimResult {
 
 export class StakingClient {
   constructor(
-    private program: Program,
+    private program: Program<SolanaProgram>,
     private connection: Connection,
     private provider: AnchorProvider
   ) {}
@@ -155,7 +156,6 @@ export class StakingClient {
       .stakeCollectionTokens(amount)
       .accounts({
         staker: stakerKeypair.publicKey,
-        collection: collectionPubkey,
         stakingPool: stakingPoolPDA,
         stakerPosition: stakerPositionPDA,
         stakerTokenAccount,
@@ -246,7 +246,6 @@ export class StakingClient {
       .unstakeCollectionTokens(unstakeAmount)
       .accounts({
         staker: stakerKeypair.publicKey,
-        collection: collectionPubkey,
         stakingPool: stakingPoolPDA,
         stakerPosition: stakerPositionPDA,
         stakerTokenAccount,
@@ -335,7 +334,6 @@ export class StakingClient {
       .claimStakingRewards()
       .accounts({
         staker: stakerKeypair.publicKey,
-        collection: collectionPubkey,
         stakingPool: stakingPoolPDA,
         stakerPosition: stakerPositionPDA,
         stakerTokenAccount,

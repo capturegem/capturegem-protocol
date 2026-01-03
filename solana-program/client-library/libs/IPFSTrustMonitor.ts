@@ -1,4 +1,4 @@
-// library-source/libs/IPFSTrustMonitor.ts
+// client-library/libs/IPFSTrustMonitor.ts
 
 /**
  * IPFSTrustMonitor - Tracks IPFS peer performance for trust-based payments
@@ -11,6 +11,7 @@
  */
 
 import { PublicKey } from "@solana/web3.js";
+// @ts-ignore - ipfs-http-client doesn't have full TypeScript types
 import { create as createIPFSClient, IPFSHTTPClient } from "ipfs-http-client";
 
 /**

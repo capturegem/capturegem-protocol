@@ -1,4 +1,4 @@
-// library-source/libs/types.ts
+// client-library/libs/types.ts
 
 /**
  * Shared TypeScript types for CaptureGem Protocol

@@ -1,4 +1,4 @@
-// library-source/libs/IpfsManager.ts
+// client-library/libs/IpfsManager.ts
 import { create, IPFSHTTPClient } from "ipfs-http-client";
 import { spawn, ChildProcess } from "child_process";
 import * as path from "path";

@@ -1,4 +1,4 @@
-// library-source/libs/ModerationClient.ts
+// client-library/libs/ModerationClient.ts
 
 /**
  * ModerationClient - Client library for moderation and copyright claim operations
@@ -19,6 +19,7 @@ import {
 } from "@solana/web3.js";
 import { Program, BN, AnchorProvider } from "@coral-xyz/anchor";
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
+import { SolanaProgram } from "../../target/types/solana_program";
 
 /**
  * Off-chain proof for copyright claims
@@ -69,7 +70,7 @@ export interface ClaimSubmissionResult {
 
 export class ModerationClient {
   constructor(
-    private program: Program,
+    private program: Program<SolanaProgram>,
     private connection: Connection,
     private provider: AnchorProvider
   ) {}
@@ -178,7 +179,7 @@ export class ModerationClient {
 
     // Build approval transaction
     const tx = await this.program.methods
-      .approveCopyrightClaim()
+      .resolveCopyrightClaim()
       .accounts({
         moderator: moderatorKeypair.publicKey,
         claimant: claim.claimant,

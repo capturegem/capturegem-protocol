@@ -1,4 +1,4 @@
-// library-source/examples/collection-manifest-example.ts
+// client-library/examples/collection-manifest-example.ts
 
 /**
  * Example: Creating a Collection Manifest
