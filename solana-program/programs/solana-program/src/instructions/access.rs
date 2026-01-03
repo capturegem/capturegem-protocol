@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_lang::solana_program::system_instruction;
-use anchor_spl::token_interface::{TokenInterface, TransferChecked, Burn, burn, Mint};
+use anchor_spl::token_interface::{TokenInterface, TransferChecked, Burn, burn, Mint, TokenAccount};
 use anchor_spl::token_2022::{self, Token2022};
 use spl_token_2022::extension::{ExtensionType, StateWithExtensionsMut, BaseStateWithExtensionsMut};
 use spl_token_2022::state::Mint as MintState;
@@ -34,17 +34,31 @@ pub struct PurchaseAccess<'info> {
     )]
     pub staking_pool: Account<'info, CollectionStakingPool>,
 
-    /// CHECK: Purchaser's collection token account (source of purchased tokens)
-    #[account(mut)]
-    pub purchaser_token_account: UncheckedAccount<'info>,
+    /// Purchaser's collection token account (source of purchased tokens)
+    #[account(
+        mut,
+        constraint = purchaser_token_account.owner == purchaser.key() @ ProtocolError::Unauthorized,
+        constraint = purchaser_token_account.mint == collection_mint.key() @ ProtocolError::Unauthorized
+    )]
+    pub purchaser_token_account: InterfaceAccount<'info, TokenAccount>,
 
-    /// CHECK: Staking pool's collection token account (receives 50%)
-    #[account(mut)]
-    pub pool_token_account: UncheckedAccount<'info>,
+    /// Staking pool's collection token account (receives 50%)
+    /// Must be owned by the staking pool PDA and use the collection mint
+    #[account(
+        mut,
+        constraint = pool_token_account.owner == staking_pool.key() @ ProtocolError::Unauthorized,
+        constraint = pool_token_account.mint == collection_mint.key() @ ProtocolError::Unauthorized
+    )]
+    pub pool_token_account: InterfaceAccount<'info, TokenAccount>,
 
-    /// CHECK: Access Escrow token account (PDA) that will hold the locked tokens (50%)
-    #[account(mut)]
-    pub escrow_token_account: UncheckedAccount<'info>,
+    /// Access Escrow token account (PDA) that will hold the locked tokens (50%)
+    /// Must be owned by the access escrow PDA and use the collection mint
+    #[account(
+        mut,
+        constraint = escrow_token_account.owner == access_escrow.key() @ ProtocolError::Unauthorized,
+        constraint = escrow_token_account.mint == collection_mint.key() @ ProtocolError::Unauthorized
+    )]
+    pub escrow_token_account: InterfaceAccount<'info, TokenAccount>,
 
     /// Access Escrow PDA - will be created
     #[account(
@@ -433,6 +447,8 @@ pub fn release_escrow<'info>(
 
     // Distribute tokens to peers based on weights
     // Remaining accounts should be provided in pairs: [peer_token_account, peer_trust_state] for each peer
+    // ⚠️ CRITICAL: Client MUST mark peer_trust_state accounts as writable (is_writable: true)
+    // If not writable, try_borrow_mut_data() will panic at runtime
     let remaining_accounts = ctx.remaining_accounts;
     require!(
         remaining_accounts.len() >= peer_wallets.len() * 2,
@@ -452,6 +468,10 @@ pub fn release_escrow<'info>(
             let peer_token_account_info = &remaining_accounts[account_idx];
             let peer_trust_state_info = &remaining_accounts[account_idx + 1];
 
+            // Validate peer_token_account is a valid token account
+            // Note: We can't use Account<TokenAccount> here because it's in remaining_accounts
+            // The transfer_checked CPI will fail if the account is invalid, providing runtime safety
+            
             // Verify and update/create PeerTrustState
             let (expected_peer_trust_pda, _peer_trust_bump) = Pubkey::find_program_address(
                 &[SEED_PEER_TRUST, peer_wallet.as_ref()],
@@ -462,11 +482,19 @@ pub fn release_escrow<'info>(
                 peer_trust_state_info.key() == expected_peer_trust_pda,
                 ProtocolError::Unauthorized
             );
+            
+            // ⚠️ SECURITY: Verify account is owned by this program (prevents malicious account injection)
+            require!(
+                peer_trust_state_info.owner == ctx.program_id,
+                ProtocolError::Unauthorized
+            );
 
             // Update PeerTrustState if it exists
             let mut trust_score_update = weight;
             if !peer_trust_state_info.data_is_empty() {
                 // Update existing PeerTrustState
+                // ⚠️ CRITICAL: This will panic if peer_trust_state_info is not marked as writable
+                // The client MUST set is_writable: true for all peer_trust_state accounts
                 let mut state = PeerTrustState::try_deserialize(&mut &peer_trust_state_info.data.borrow()[8..])?;
                 require!(
                     state.peer_wallet == *peer_wallet,
@@ -481,11 +509,15 @@ pub fn release_escrow<'info>(
                 state.last_active = clock.unix_timestamp;
                 trust_score_update = state.trust_score;
                 
-                let mut data = peer_trust_state_info.try_borrow_mut_data()?;
+                // ⚠️ SECURITY: try_borrow_mut_data() will fail if account is not writable
+                // This is intentional - it prevents silent failures and ensures client correctness
+                let mut data = peer_trust_state_info.try_borrow_mut_data()
+                    .map_err(|_| ProtocolError::InvalidAccount)?; // Convert to protocol error
                 state.try_serialize(&mut &mut data[8..])?;
             } else {
                 // Account doesn't exist yet - would need separate initialization with rent
-                msg!("PeerTrustState not initialized for peer: {}", peer_wallet);
+                // For now, we skip trust score update if account doesn't exist
+                msg!("PeerTrustState not initialized for peer: {} - skipping trust update", peer_wallet);
             }
 
             // Transfer tokens from escrow to peer token account using invoke_signed

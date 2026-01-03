@@ -86,6 +86,7 @@ pub fn create_collection(
     collection.staker_reward_balance = 0;
     collection.total_shares = 0;
     collection.acc_reward_per_share = 0;
+    collection.tokens_minted = false; // Tokens not yet minted
     collection.bump = ctx.bumps.collection;
 
     // Mint is automatically created and initialized by Anchor's init constraint
@@ -231,8 +232,15 @@ pub fn mint_collection_tokens(
 ) -> Result<()> {
     require!(amount > 0, ProtocolError::InvalidFeeConfig);
 
-    let collection = &ctx.accounts.collection;
+    let collection = &mut ctx.accounts.collection;
     let mint = &ctx.accounts.mint;
+
+    // ⚠️ SECURITY: Enforce one-time minting per collection
+    // According to the design doc, collection tokens should only be minted once ever per collection
+    require!(
+        !collection.tokens_minted,
+        ProtocolError::Unauthorized // Tokens already minted for this collection
+    );
 
     // Verify the mint matches the collection's mint
     require!(
@@ -321,6 +329,9 @@ pub fn mint_collection_tokens(
     );
     anchor_spl::token_interface::mint_to(reserve_cpi_ctx, final_reserve_amount)?;
 
+    // Mark tokens as minted (one-time operation - cannot mint again)
+    collection.tokens_minted = true;
+
     msg!(
         "CollectionTokensMinted: Collection={} Mint={} TotalAmount={}",
         collection.collection_id,
@@ -335,6 +346,9 @@ pub fn mint_collection_tokens(
     );
     msg!(
         "NEXT STEPS: 1) initialize_orca_pool() to create Whirlpool. 2) deposit_liquidity_to_orca() to move tokens from reserve → Orca."
+    );
+    msg!(
+        "SECURITY: Tokens marked as minted - this collection cannot mint tokens again"
     );
 
     Ok(())
