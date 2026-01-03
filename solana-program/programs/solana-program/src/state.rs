@@ -73,10 +73,10 @@ pub struct ViewRights {
 
 #[account]
 pub struct AccessEscrow {
-    pub purchaser: Pubkey,  // The user buying content
-    pub collection: Pubkey,  // The content being bought
-    pub amount_locked: u64, // Tokens bought from the pool, waiting for release
-    pub created_at: i64,    // Timestamp for timeout logic
+    pub purchaser: Pubkey,       // The user buying content (only they can release funds)
+    pub collection: Pubkey,       // The content being bought
+    pub amount_locked: u64,       // Tokens (50% of purchase), waiting for release to peers
+    pub created_at: i64,          // Timestamp for 24-hour burn timeout logic
     pub bump: u8,
 }
 
@@ -155,4 +155,29 @@ pub struct ModeratorStake {
 
 impl ModeratorStake {
     pub const MAX_SIZE: usize = 8 + 32 + 8 + 1 + 4 + 1;
+}
+
+#[account]
+pub struct CollectionStakingPool {
+    pub collection: Pubkey,           // The collection this pool is for
+    pub total_staked: u64,            // Total collection tokens staked in this pool
+    pub reward_per_token: u128,       // Accumulated rewards per token (scaled by REWARD_PRECISION)
+    pub bump: u8,
+}
+
+impl CollectionStakingPool {
+    pub const MAX_SIZE: usize = 8 + 32 + 8 + 16 + 1;
+}
+
+#[account]
+pub struct StakerPosition {
+    pub staker: Pubkey,               // The user who staked
+    pub collection: Pubkey,           // The collection being staked
+    pub amount_staked: u64,           // Number of collection tokens staked
+    pub reward_debt: u128,            // Used to calculate pending rewards (scaled by REWARD_PRECISION)
+    pub bump: u8,
+}
+
+impl StakerPosition {
+    pub const MAX_SIZE: usize = 8 + 32 + 32 + 8 + 16 + 1;
 }

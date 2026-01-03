@@ -1,9 +1,13 @@
 // solana-program/programs/solana-program/src/instructions/staking.rs
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::TokenInterface;
+use anchor_spl::token_interface::{TokenInterface, Transfer};
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
+
+// ============================================================================
+// Moderator Staking (CAPGM Token)
+// ============================================================================
 
 #[derive(Accounts)]
 pub struct StakeModerator<'info> {
@@ -47,14 +51,6 @@ pub fn stake_moderator(
         ProtocolError::InsufficientModeratorStake
     );
 
-    // Check if moderator has sufficient balance
-    // Note: In production, validate token account structure and check balance via CPI
-    // For now, we assume the constraint above validates ownership
-    // require!(
-    //     moderator_token_account.amount >= stake_amount,
-    //     ProtocolError::InsufficientFunds
-    // );
-
     // Update or initialize moderator stake
     moderator_stake.moderator = ctx.accounts.moderator.key();
     moderator_stake.stake_amount = moderator_stake.stake_amount
@@ -64,7 +60,6 @@ pub fn stake_moderator(
     moderator_stake.bump = ctx.bumps.moderator_stake;
 
     // In production: Transfer CAPGM tokens to a staking vault via CPI
-    // For now, we just track the stake amount
 
     Ok(())
 }
@@ -104,6 +99,297 @@ pub fn slash_moderator(ctx: Context<SlashModerator>) -> Result<()> {
     // In production: Burn or transfer slashed tokens to treasury via CPI
 
     msg!("ModeratorSlashed: Moderator={}", ctx.accounts.moderator.key());
+
+    Ok(())
+}
+
+// ============================================================================
+// Collection Token Staking (for earning rewards from access purchases)
+// ============================================================================
+
+#[derive(Accounts)]
+pub struct StakeCollectionTokens<'info> {
+    #[account(mut)]
+    pub staker: Signer<'info>,
+
+    #[account(
+        seeds = [b"collection", collection.owner.as_ref(), collection.collection_id.as_bytes()],
+        bump
+    )]
+    pub collection: Account<'info, CollectionState>,
+
+    #[account(
+        init_if_needed,
+        payer = staker,
+        space = CollectionStakingPool::MAX_SIZE,
+        seeds = [SEED_STAKING_POOL, collection.key().as_ref()],
+        bump
+    )]
+    pub staking_pool: Account<'info, CollectionStakingPool>,
+
+    #[account(
+        init_if_needed,
+        payer = staker,
+        space = StakerPosition::MAX_SIZE,
+        seeds = [SEED_STAKER_POSITION, staker.key().as_ref(), collection.key().as_ref()],
+        bump
+    )]
+    pub staker_position: Account<'info, StakerPosition>,
+
+    /// CHECK: Staker's collection token account
+    #[account(mut)]
+    pub staker_token_account: UncheckedAccount<'info>,
+
+    /// CHECK: Staking pool's collection token account
+    #[account(mut)]
+    pub pool_token_account: UncheckedAccount<'info>,
+
+    pub token_program: Interface<'info, TokenInterface>,
+    pub system_program: Program<'info, System>,
+}
+
+/// Stake collection tokens to earn rewards from access purchases
+pub fn stake_collection_tokens(
+    ctx: Context<StakeCollectionTokens>,
+    amount: u64,
+) -> Result<()> {
+    require!(amount > 0, ProtocolError::InsufficientFunds);
+
+    let staking_pool = &mut ctx.accounts.staking_pool;
+    let staker_position = &mut ctx.accounts.staker_position;
+    let collection = &ctx.accounts.collection;
+
+    // Initialize pool if needed
+    if staking_pool.collection == Pubkey::default() {
+        staking_pool.collection = collection.key();
+        staking_pool.total_staked = 0;
+        staking_pool.reward_per_token = 0;
+        staking_pool.bump = ctx.bumps.staking_pool;
+    }
+
+    // Initialize position if needed
+    if staker_position.staker == Pubkey::default() {
+        staker_position.staker = ctx.accounts.staker.key();
+        staker_position.collection = collection.key();
+        staker_position.amount_staked = 0;
+        staker_position.reward_debt = 0;
+        staker_position.bump = ctx.bumps.staker_position;
+    }
+
+    // Claim any pending rewards before updating stake
+    if staker_position.amount_staked > 0 {
+        let pending = (staker_position.amount_staked as u128)
+            .checked_mul(staking_pool.reward_per_token)
+            .ok_or(ProtocolError::MathOverflow)?
+            .checked_sub(staker_position.reward_debt)
+            .ok_or(ProtocolError::MathOverflow)?;
+        
+        if pending > 0 {
+            let pending_tokens = (pending / REWARD_PRECISION) as u64;
+            if pending_tokens > 0 {
+                // Transfer pending rewards from pool to staker
+                // In production: Implement actual token transfer via CPI
+                msg!("AutoClaim: Staker={} Amount={}", ctx.accounts.staker.key(), pending_tokens);
+            }
+        }
+    }
+
+    // Transfer tokens from staker to pool
+    let transfer_ix = Transfer {
+        from: ctx.accounts.staker_token_account.to_account_info(),
+        to: ctx.accounts.pool_token_account.to_account_info(),
+        authority: ctx.accounts.staker.to_account_info(),
+    };
+    let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), transfer_ix);
+    anchor_spl::token_interface::transfer(cpi_ctx, amount)?;
+
+    // Update staking pool
+    staking_pool.total_staked = staking_pool.total_staked
+        .checked_add(amount)
+        .ok_or(ProtocolError::MathOverflow)?;
+
+    // Update staker position
+    staker_position.amount_staked = staker_position.amount_staked
+        .checked_add(amount)
+        .ok_or(ProtocolError::MathOverflow)?;
+    
+    staker_position.reward_debt = (staker_position.amount_staked as u128)
+        .checked_mul(staking_pool.reward_per_token)
+        .ok_or(ProtocolError::MathOverflow)?;
+
+    msg!(
+        "CollectionTokensStaked: Staker={} Collection={} Amount={} TotalStaked={}",
+        ctx.accounts.staker.key(),
+        collection.collection_id,
+        amount,
+        staking_pool.total_staked
+    );
+
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct ClaimStakingRewards<'info> {
+    #[account(mut)]
+    pub staker: Signer<'info>,
+
+    #[account(
+        seeds = [b"collection", collection.owner.as_ref(), collection.collection_id.as_bytes()],
+        bump
+    )]
+    pub collection: Account<'info, CollectionState>,
+
+    #[account(
+        mut,
+        seeds = [SEED_STAKING_POOL, collection.key().as_ref()],
+        bump = staking_pool.bump
+    )]
+    pub staking_pool: Account<'info, CollectionStakingPool>,
+
+    #[account(
+        mut,
+        seeds = [SEED_STAKER_POSITION, staker.key().as_ref(), collection.key().as_ref()],
+        bump = staker_position.bump,
+        constraint = staker_position.staker == staker.key() @ ProtocolError::Unauthorized
+    )]
+    pub staker_position: Account<'info, StakerPosition>,
+
+    /// CHECK: Staker's collection token account (destination)
+    #[account(mut)]
+    pub staker_token_account: UncheckedAccount<'info>,
+
+    /// CHECK: Staking pool's collection token account (source)
+    #[account(mut)]
+    pub pool_token_account: UncheckedAccount<'info>,
+
+    pub token_program: Interface<'info, TokenInterface>,
+}
+
+/// Claim accumulated staking rewards
+pub fn claim_staking_rewards(ctx: Context<ClaimStakingRewards>) -> Result<()> {
+    let staking_pool = &ctx.accounts.staking_pool;
+    let staker_position = &mut ctx.accounts.staker_position;
+
+    require!(
+        staker_position.amount_staked > 0,
+        ProtocolError::InsufficientFunds
+    );
+
+    // Calculate pending rewards
+    let pending = (staker_position.amount_staked as u128)
+        .checked_mul(staking_pool.reward_per_token)
+        .ok_or(ProtocolError::MathOverflow)?
+        .checked_sub(staker_position.reward_debt)
+        .ok_or(ProtocolError::MathOverflow)?;
+
+    let pending_tokens = (pending / REWARD_PRECISION) as u64;
+    
+    require!(pending_tokens > 0, ProtocolError::InsufficientFunds);
+
+    // Transfer rewards from pool to staker
+    // In production: Use PDA signer for pool token account
+    // For now, log the transfer
+    msg!(
+        "RewardClaim: Staker={} Collection={} Amount={}",
+        ctx.accounts.staker.key(),
+        ctx.accounts.collection.collection_id,
+        pending_tokens
+    );
+
+    // Update reward debt
+    staker_position.reward_debt = (staker_position.amount_staked as u128)
+        .checked_mul(staking_pool.reward_per_token)
+        .ok_or(ProtocolError::MathOverflow)?;
+
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct UnstakeCollectionTokens<'info> {
+    #[account(mut)]
+    pub staker: Signer<'info>,
+
+    #[account(
+        seeds = [b"collection", collection.owner.as_ref(), collection.collection_id.as_bytes()],
+        bump
+    )]
+    pub collection: Account<'info, CollectionState>,
+
+    #[account(
+        mut,
+        seeds = [SEED_STAKING_POOL, collection.key().as_ref()],
+        bump = staking_pool.bump
+    )]
+    pub staking_pool: Account<'info, CollectionStakingPool>,
+
+    #[account(
+        mut,
+        seeds = [SEED_STAKER_POSITION, staker.key().as_ref(), collection.key().as_ref()],
+        bump = staker_position.bump,
+        constraint = staker_position.staker == staker.key() @ ProtocolError::Unauthorized
+    )]
+    pub staker_position: Account<'info, StakerPosition>,
+
+    /// CHECK: Staker's collection token account (destination)
+    #[account(mut)]
+    pub staker_token_account: UncheckedAccount<'info>,
+
+    /// CHECK: Staking pool's collection token account (source)
+    #[account(mut)]
+    pub pool_token_account: UncheckedAccount<'info>,
+
+    pub token_program: Interface<'info, TokenInterface>,
+}
+
+/// Unstake collection tokens and claim any pending rewards
+pub fn unstake_collection_tokens(
+    ctx: Context<UnstakeCollectionTokens>,
+    amount: u64,
+) -> Result<()> {
+    let staking_pool = &mut ctx.accounts.staking_pool;
+    let staker_position = &mut ctx.accounts.staker_position;
+
+    require!(amount > 0, ProtocolError::InsufficientFunds);
+    require!(
+        staker_position.amount_staked >= amount,
+        ProtocolError::InsufficientFunds
+    );
+
+    // Claim any pending rewards first
+    let pending = (staker_position.amount_staked as u128)
+        .checked_mul(staking_pool.reward_per_token)
+        .ok_or(ProtocolError::MathOverflow)?
+        .checked_sub(staker_position.reward_debt)
+        .ok_or(ProtocolError::MathOverflow)?;
+
+    let pending_tokens = (pending / REWARD_PRECISION) as u64;
+    if pending_tokens > 0 {
+        msg!("AutoClaimOnUnstake: Amount={}", pending_tokens);
+        // In production: Transfer pending rewards
+    }
+
+    // Transfer staked tokens back to staker
+    // In production: Use PDA signer for pool token account
+    msg!(
+        "Unstake: Staker={} Collection={} Amount={}",
+        ctx.accounts.staker.key(),
+        ctx.accounts.collection.collection_id,
+        amount
+    );
+
+    // Update staking pool
+    staking_pool.total_staked = staking_pool.total_staked
+        .checked_sub(amount)
+        .ok_or(ProtocolError::MathOverflow)?;
+
+    // Update staker position
+    staker_position.amount_staked = staker_position.amount_staked
+        .checked_sub(amount)
+        .ok_or(ProtocolError::MathOverflow)?;
+
+    staker_position.reward_debt = (staker_position.amount_staked as u128)
+        .checked_mul(staking_pool.reward_per_token)
+        .ok_or(ProtocolError::MathOverflow)?;
 
     Ok(())
 }

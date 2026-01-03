@@ -30,4 +30,8 @@ pub enum ProtocolError {
     PerformerEscrowNotFound,
     #[msg("User account not initialized.")]
     UserAccountNotInitialized,
+    #[msg("Escrow has expired (24 hours passed).")]
+    EscrowExpired,
+    #[msg("Escrow has not expired yet (cannot burn).")]
+    EscrowNotExpired,
 }

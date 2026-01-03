@@ -49,12 +49,23 @@ pub mod solana_program {
         instructions::access::create_access_escrow(ctx, amount_locked)
     }
 
+    pub fn purchase_access(
+        ctx: Context<PurchaseAccess>,
+        total_amount: u64,
+    ) -> Result<()> {
+        instructions::access::purchase_access(ctx, total_amount)
+    }
+
     pub fn release_escrow(
         ctx: Context<ReleaseEscrow>,
         peer_wallets: Vec<Pubkey>,
         peer_weights: Vec<u64>,
     ) -> Result<()> {
         instructions::access::release_escrow(ctx, peer_wallets, peer_weights)
+    }
+
+    pub fn burn_expired_escrow(ctx: Context<BurnExpiredEscrow>) -> Result<()> {
+        instructions::access::burn_expired_escrow(ctx)
     }
 
     pub fn register_collection_host(ctx: Context<RegisterHost>) -> Result<()> {
@@ -94,6 +105,24 @@ pub mod solana_program {
         ctx: Context<SlashModerator>,
     ) -> Result<()> {
         instructions::staking::slash_moderator(ctx)
+    }
+
+    pub fn stake_collection_tokens(
+        ctx: Context<StakeCollectionTokens>,
+        amount: u64,
+    ) -> Result<()> {
+        instructions::staking::stake_collection_tokens(ctx, amount)
+    }
+
+    pub fn claim_staking_rewards(ctx: Context<ClaimStakingRewards>) -> Result<()> {
+        instructions::staking::claim_staking_rewards(ctx)
+    }
+
+    pub fn unstake_collection_tokens(
+        ctx: Context<UnstakeCollectionTokens>,
+        amount: u64,
+    ) -> Result<()> {
+        instructions::staking::unstake_collection_tokens(ctx, amount)
     }
 
     pub fn initialize_performer_escrow(
