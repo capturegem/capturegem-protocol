@@ -163,6 +163,12 @@ pub fn purchase_access(
     let staking_pool = &mut ctx.accounts.staking_pool;
     let collection = &ctx.accounts.collection;
 
+    // ⚠️ SECURITY: Prevent purchases of blacklisted collections
+    // This enforces the blacklist at the blockchain level, preventing direct on-chain bypass
+    // Design Requirement 3.2.A: is_blacklisted is a "Moderator toggle for illegal content"
+    // Design Requirement 5.2: "official client will refuse to resolve... effectively de-platforming"
+    require!(!collection.is_blacklisted, ProtocolError::Unauthorized);
+
     // Verify cid_hash matches collection's cid_hash
     require!(
         cid_hash == collection.cid_hash,
@@ -528,6 +534,10 @@ pub fn create_access_escrow(
     let clock = &ctx.accounts.clock;
     let access_escrow = &mut ctx.accounts.access_escrow;
     let collection = &ctx.accounts.collection;
+
+    // ⚠️ SECURITY: Prevent purchases of blacklisted collections
+    // This enforces the blacklist at the blockchain level, preventing direct on-chain bypass
+    require!(!collection.is_blacklisted, ProtocolError::Unauthorized);
 
     // Verify cid_hash matches collection's cid_hash
     require!(
