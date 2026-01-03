@@ -5,6 +5,16 @@ use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
 
+#[event]
+pub struct CidCensorshipEvent {
+    pub collection_id: String,
+    pub censored_cid: String,
+    pub moderator: Pubkey,
+    pub timestamp: i64,
+    pub approved: bool,
+    pub reporter: Option<Pubkey>,
+}
+
 #[derive(Accounts)]
 #[instruction(target_id: String)]
 pub struct CreateTicket<'info> {
@@ -217,6 +227,98 @@ pub fn resolve_copyright_claim(ctx: Context<ResolveCopyrightClaim>, verdict: boo
             collection.collection_id,
             ticket.reporter
         );
+    }
+
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct ResolveCidCensorship<'info> {
+    #[account(mut)]
+    pub moderator: Signer<'info>,
+
+    #[account(
+        seeds = [SEED_GLOBAL_STATE],
+        bump = global_state.bump
+    )]
+    pub global_state: Account<'info, GlobalState>,
+
+    #[account(
+        seeds = [b"moderator_stake", moderator.key().as_ref()],
+        bump,
+        constraint = moderator_stake.is_active @ ProtocolError::InsufficientModeratorStake,
+        constraint = moderator_stake.stake_amount >= global_state.moderator_stake_minimum @ ProtocolError::InsufficientModeratorStake
+    )]
+    pub moderator_stake: Account<'info, ModeratorStake>,
+    
+    #[account(mut)]
+    pub ticket: Account<'info, ModTicket>,
+
+    #[account(
+        mut,
+        seeds = [b"collection", collection.owner.as_ref(), collection.collection_id.as_bytes()],
+        bump
+    )]
+    pub collection: Account<'info, CollectionState>,
+
+    pub clock: Sysvar<'info, Clock>,
+}
+
+/// Resolves a CID censorship ticket by censoring a specific CID.
+/// This instruction emits blockchain logs/notes for the indexer to pick up.
+/// The indexer will use these logs to flag the CID as censored in its database.
+pub fn resolve_cid_censorship(
+    ctx: Context<ResolveCidCensorship>,
+    verdict: bool,
+    censored_cid: String,
+) -> Result<()> {
+    let ticket = &mut ctx.accounts.ticket;
+    let collection = &ctx.accounts.collection;
+    let clock = &ctx.accounts.clock;
+
+    // Verify this is a CID censorship ticket
+    require!(
+        ticket.ticket_type == TicketType::CidCensorship,
+        ProtocolError::Unauthorized
+    );
+
+    if ticket.resolved {
+        return err!(ProtocolError::TicketAlreadyResolved);
+    }
+
+    ticket.resolved = true;
+    ticket.verdict = verdict; // true = approved (censor), false = rejected
+    ticket.resolver = Some(ctx.accounts.moderator.key());
+
+    // Get collection info for logging
+    let collection_id = collection.collection_id.clone();
+
+    // If approved, emit blockchain event for indexer to pick up
+    if verdict {
+        require!(
+            censored_cid.len() <= crate::state::MAX_URL_LEN,
+            ProtocolError::StringTooLong
+        );
+
+        // Emit blockchain event for indexer to pick up
+        emit!(CidCensorshipEvent {
+            collection_id,
+            censored_cid,
+            moderator: ctx.accounts.moderator.key(),
+            timestamp: clock.unix_timestamp,
+            approved: true,
+            reporter: Some(ticket.reporter),
+        });
+    } else {
+        // Emit rejection event
+        emit!(CidCensorshipEvent {
+            collection_id,
+            censored_cid,
+            moderator: ctx.accounts.moderator.key(),
+            timestamp: clock.unix_timestamp,
+            approved: false,
+            reporter: Some(ticket.reporter),
+        });
     }
 
     Ok(())

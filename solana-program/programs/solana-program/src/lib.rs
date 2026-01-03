@@ -132,4 +132,12 @@ pub mod solana_program {
     ) -> Result<()> {
         instructions::moderation::resolve_copyright_claim(ctx, verdict, vault_amount)
     }
+
+    pub fn resolve_cid_censorship(
+        ctx: Context<ResolveCidCensorship>,
+        verdict: bool,
+        censored_cid: String
+    ) -> Result<()> {
+        instructions::moderation::resolve_cid_censorship(ctx, verdict, censored_cid)
+    }
 }

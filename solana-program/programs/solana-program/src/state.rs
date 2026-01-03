@@ -141,6 +141,7 @@ pub enum TicketType {
     ContentReport,   // Flagging illegal or TOS-violating content
     CopyrightClaim, // IP disputes - transfers 10% Claim Vault tokens to claimant
     PerformerClaim,  // Performer claiming their fee share
+    CidCensorship,   // Censoring specific CIDs - reimburses stakeholders from collection pools
 }
 
 #[account]
