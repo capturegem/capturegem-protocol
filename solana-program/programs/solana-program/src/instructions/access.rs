@@ -137,8 +137,11 @@ pub fn purchase_access(
     let fee_denominator = 10000u64;
 
     // Calculate fees and net amounts for staking pool transfer
+    // Use ceiling division to favor the fee collector and prevent micro-insolvency
     let staker_fee = amount_to_stakers
         .checked_mul(fee_basis_points)
+        .ok_or(ProtocolError::MathOverflow)?
+        .checked_add(fee_denominator - 1) // Add denominator - 1 for ceiling division
         .ok_or(ProtocolError::MathOverflow)?
         .checked_div(fee_denominator)
         .ok_or(ProtocolError::MathOverflow)?;
@@ -147,8 +150,11 @@ pub fn purchase_access(
         .ok_or(ProtocolError::MathOverflow)?;
 
     // Calculate fees and net amounts for escrow transfer
+    // Use ceiling division to favor the fee collector and prevent micro-insolvency
     let escrow_fee = amount_to_escrow
         .checked_mul(fee_basis_points)
+        .ok_or(ProtocolError::MathOverflow)?
+        .checked_add(fee_denominator - 1) // Add denominator - 1 for ceiling division
         .ok_or(ProtocolError::MathOverflow)?
         .checked_div(fee_denominator)
         .ok_or(ProtocolError::MathOverflow)?;

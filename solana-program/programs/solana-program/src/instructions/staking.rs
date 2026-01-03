@@ -197,7 +197,33 @@ pub fn stake_collection_tokens(
         }
     }
 
-    // Transfer tokens from staker to pool
+    // ============================================================================
+    // CRITICAL: Calculate Transfer Fee deduction (1.5% = 150 basis points)
+    // Token-2022 will automatically deduct 1.5% on transfer, so we must account
+    // for this in our state updates to prevent insolvency.
+    // 
+    // User sends: amount (gross)
+    // Pool receives: net_amount (after 1.5% fee)
+    // We must credit only net_amount to prevent the pool from being insolvent.
+    // ============================================================================
+    let fee_basis_points = 150u64; // 1.5% transfer fee (matches create_collection)
+    let fee_denominator = 10000u64;
+    
+    // Calculate fee with ceiling division to favor the fee collector
+    // This prevents micro-insolvency if Token Program rounds fees up
+    let fee = amount
+        .checked_mul(fee_basis_points)
+        .ok_or(ProtocolError::MathOverflow)?
+        .checked_add(fee_denominator - 1) // Add denominator - 1 for ceiling division
+        .ok_or(ProtocolError::MathOverflow)?
+        .checked_div(fee_denominator)
+        .ok_or(ProtocolError::MathOverflow)?;
+        
+    let net_amount = amount
+        .checked_sub(fee)
+        .ok_or(ProtocolError::MathOverflow)?;
+
+    // Transfer tokens from staker to pool (user pays gross amount)
     let transfer_ix = TransferChecked {
         from: ctx.accounts.staker_token_account.to_account_info(),
         mint: ctx.accounts.collection_mint.to_account_info(),
@@ -207,14 +233,14 @@ pub fn stake_collection_tokens(
     let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), transfer_ix);
     anchor_spl::token_interface::transfer_checked(cpi_ctx, amount, ctx.accounts.collection_mint.decimals)?;
 
-    // Update staking pool
+    // Update staking pool with NET amount (what actually arrived)
     staking_pool.total_staked = staking_pool.total_staked
-        .checked_add(amount)
+        .checked_add(net_amount)
         .ok_or(ProtocolError::MathOverflow)?;
 
-    // Update staker position
+    // Update staker position with NET amount (what they actually staked)
     staker_position.amount_staked = staker_position.amount_staked
-        .checked_add(amount)
+        .checked_add(net_amount)
         .ok_or(ProtocolError::MathOverflow)?;
     
     staker_position.reward_debt = (staker_position.amount_staked as u128)
@@ -222,10 +248,12 @@ pub fn stake_collection_tokens(
         .ok_or(ProtocolError::MathOverflow)?;
 
     msg!(
-        "CollectionTokensStaked: Staker={} Collection={} Amount={} TotalStaked={}",
+        "CollectionTokensStaked: Staker={} Collection={} GrossAmount={} NetAmount={} Fee={} TotalStaked={}",
         ctx.accounts.staker.key(),
         collection.collection_id,
         amount,
+        net_amount,
+        fee,
         staking_pool.total_staked
     );
 
