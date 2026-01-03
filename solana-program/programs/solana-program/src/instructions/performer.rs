@@ -1,5 +1,6 @@
 // solana-program/programs/solana-program/src/instructions/performer.rs
 use anchor_lang::prelude::*;
+use anchor_spl::token_interface::{TokenInterface, TransferChecked, Mint};
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
@@ -61,11 +62,27 @@ pub struct ClaimPerformerEscrow<'info> {
     )]
     pub performer_escrow: Account<'info, PerformerEscrow>,
 
-    /// CHECK: Performer's token account to receive funds
+    /// CHECK: Performer escrow's token account (source of funds) - must be owned by performer_escrow PDA
+    #[account(mut)]
+    pub escrow_token_account: UncheckedAccount<'info>,
+
+    /// CHECK: Performer's token account to receive funds (destination)
     #[account(mut)]
     pub performer_token_account: UncheckedAccount<'info>,
+
+    /// Collection token mint (for transfer_checked)
+    pub collection_mint: InterfaceAccount<'info, Mint>,
+
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
+/// Claims accumulated performer fees from the PerformerEscrow.
+/// 
+/// NOTE: Currently, purchase_access splits funds 50/50 between Stakers and Peers.
+/// PerformerEscrow is not funded in the current purchase_access flow. If PerformerEscrow
+/// is intended to be used, funding logic should be added to purchase_access or another
+/// instruction. Otherwise, this escrow mechanism may be deprecated in favor of the
+/// CollectionStakingPool for creator revenue (via the 10% token allocation).
 pub fn claim_performer_escrow(ctx: Context<ClaimPerformerEscrow>) -> Result<()> {
     let performer_escrow = &mut ctx.accounts.performer_escrow;
 
@@ -75,12 +92,42 @@ pub fn claim_performer_escrow(ctx: Context<ClaimPerformerEscrow>) -> Result<()> 
     );
 
     let claim_amount = performer_escrow.balance;
+
+    // Transfer tokens from escrow token account to performer token account using PerformerEscrow PDA as signer
+    let collection_key = ctx.accounts.collection.key();
+    let escrow_seeds = [
+        SEED_PERFORMER_ESCROW,
+        collection_key.as_ref(),
+        &[performer_escrow.bump],
+    ];
+    let signer_seeds = &[&escrow_seeds[..]];
+
+    let transfer_ix = TransferChecked {
+        from: ctx.accounts.escrow_token_account.to_account_info(),
+        mint: ctx.accounts.collection_mint.to_account_info(),
+        to: ctx.accounts.performer_token_account.to_account_info(),
+        authority: ctx.accounts.escrow_token_account.to_account_info(), // Escrow token account is owned by performer_escrow PDA
+    };
+    let cpi_ctx = CpiContext::new_with_signer(
+        ctx.accounts.token_program.to_account_info(),
+        transfer_ix,
+        signer_seeds,
+    );
+    anchor_spl::token_interface::transfer_checked(
+        cpi_ctx,
+        claim_amount,
+        ctx.accounts.collection_mint.decimals,
+    )?;
+
+    // Reset balance after successful transfer
     performer_escrow.balance = 0;
 
-    // In production: Transfer tokens to performer_token_account via CPI
-    // For now, we just reset the balance
-
-    msg!("PerformerEscrowClaimed: Amount={} Performer={}", claim_amount, ctx.accounts.performer.key());
+    msg!(
+        "PerformerEscrowClaimed: Amount={} Performer={} Collection={}",
+        claim_amount,
+        ctx.accounts.performer.key(),
+        ctx.accounts.collection.collection_id
+    );
 
     Ok(())
 }
