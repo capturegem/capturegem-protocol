@@ -83,8 +83,9 @@ describe("Integration Tests", () => {
       const uniqueCollectionId = `collection-${Date.now()}`;
       const [collectionPDA] = getCollectionPDA(user.publicKey, uniqueCollectionId);
       const mint = Keypair.generate();
-      await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+      await provider.connection.confirmTransaction(sig);
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
       await program.methods
         .createCollection(
@@ -289,9 +290,11 @@ describe("Integration Tests", () => {
       const mint1 = Keypair.generate();
       const mint2 = Keypair.generate();
       
-      await provider.connection.requestAirdrop(mint1.publicKey, 2 * 1e9);
-      await provider.connection.requestAirdrop(mint2.publicKey, 2 * 1e9);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const sig1 = await provider.connection.requestAirdrop(mint1.publicKey, 2 * 1e9);
+      const sig2 = await provider.connection.requestAirdrop(mint2.publicKey, 2 * 1e9);
+      await provider.connection.confirmTransaction(sig1);
+      await provider.connection.confirmTransaction(sig2);
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       await program.methods
         .createCollection(

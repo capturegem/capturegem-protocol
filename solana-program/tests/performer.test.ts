@@ -34,8 +34,9 @@ describe("Performer Escrow", () => {
     } catch {
       const mint = Keypair.generate();
       const { provider } = await import("./helpers/setup");
-      await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+      await provider.connection.confirmTransaction(sig);
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
       await program.methods
         .createCollection(
@@ -84,8 +85,9 @@ describe("Performer Escrow", () => {
   it("Fails if performer_wallet doesn't match signer", async () => {
     const wrongPerformer = Keypair.generate();
     const { provider } = await import("./helpers/setup");
-    await provider.connection.requestAirdrop(wrongPerformer.publicKey, 2 * 1e9);
-    await new Promise(resolve => setTimeout(resolve, 500));
+    const sig = await provider.connection.requestAirdrop(wrongPerformer.publicKey, 2 * 1e9);
+    await provider.connection.confirmTransaction(sig);
+    await new Promise(resolve => setTimeout(resolve, 1000));
     
     const performerTokenAccount = Keypair.generate().publicKey;
 

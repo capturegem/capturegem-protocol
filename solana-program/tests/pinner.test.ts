@@ -35,8 +35,9 @@ describe("Pinner Operations", () => {
       // Collection doesn't exist, create it
       const mint = Keypair.generate();
       const { provider } = await import("./helpers/setup");
-      await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+      await provider.connection.confirmTransaction(sig);
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
       await program.methods
         .createCollection(
@@ -121,8 +122,9 @@ describe("Pinner Operations", () => {
     it("Successfully submits successful audit", async () => {
       const authority = Keypair.generate(); // In production, this would be a verified auditor
       const { provider } = await import("./helpers/setup");
-      await provider.connection.requestAirdrop(authority.publicKey, 2 * 1e9);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const sig = await provider.connection.requestAirdrop(authority.publicKey, 2 * 1e9);
+      await provider.connection.confirmTransaction(sig);
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       const tx = await program.methods
         .submitAuditResult(true)
@@ -190,8 +192,9 @@ describe("Pinner Operations", () => {
       // Deactivate pinner
       const authority = Keypair.generate();
       const { provider } = await import("./helpers/setup");
-      await provider.connection.requestAirdrop(authority.publicKey, 2 * 1e9);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const sig = await provider.connection.requestAirdrop(authority.publicKey, 2 * 1e9);
+      await provider.connection.confirmTransaction(sig);
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
       await program.methods
         .submitAuditResult(false)

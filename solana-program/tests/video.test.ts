@@ -36,8 +36,9 @@ describe("Video Upload", () => {
     
     // Airdrop to mint keypair if it's used as signer
     const { provider } = await import("./helpers/setup");
-    await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-    await new Promise(resolve => setTimeout(resolve, 500));
+    const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+    await provider.connection.confirmTransaction(sig);
+    await new Promise(resolve => setTimeout(resolve, 1000));
     
     // Check if collection exists, if not create it
     try {

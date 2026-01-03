@@ -36,8 +36,9 @@ describe("Treasury - Fee Harvesting", () => {
     } catch {
       const mint = Keypair.generate();
       const { provider } = await import("./helpers/setup");
-      await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+      await provider.connection.confirmTransaction(sig);
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
       await program.methods
         .createCollection(

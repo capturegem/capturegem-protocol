@@ -109,8 +109,9 @@ describe("User Account & Collection", () => {
     it("Successfully creates collection", async () => {
       const [collectionPDA] = getCollectionPDA(user.publicKey, COLLECTION_ID);
       const mint = Keypair.generate();
-      await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+      await provider.connection.confirmTransaction(sig);
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       const tx = await program.methods
         .createCollection(
@@ -149,8 +150,9 @@ describe("User Account & Collection", () => {
     it("Fails if max_video_limit is 0", async () => {
       const [collectionPDA] = getCollectionPDA(user.publicKey, "invalid-collection");
       const mint = Keypair.generate();
-      await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+      await provider.connection.confirmTransaction(sig);
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       try {
         await program.methods
@@ -182,8 +184,9 @@ describe("User Account & Collection", () => {
       const longId = "a".repeat(33); // MAX_ID_LEN is 32
       const [collectionPDA] = getCollectionPDA(user.publicKey, longId);
       const mint = Keypair.generate();
-      await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+      await provider.connection.confirmTransaction(sig);
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       try {
         await program.methods
@@ -215,8 +218,9 @@ describe("User Account & Collection", () => {
       const longName = "a".repeat(51); // MAX_NAME_LEN is 50
       const [collectionPDA] = getCollectionPDA(user.publicKey, "test-collection-2");
       const mint = Keypair.generate();
-      await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+      await provider.connection.confirmTransaction(sig);
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       try {
         await program.methods
@@ -248,8 +252,9 @@ describe("User Account & Collection", () => {
       const longCid = "a".repeat(201); // MAX_URL_LEN is 200
       const [collectionPDA] = getCollectionPDA(user.publicKey, "test-collection-3");
       const mint = Keypair.generate();
-      await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+      await provider.connection.confirmTransaction(sig);
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       try {
         await program.methods
