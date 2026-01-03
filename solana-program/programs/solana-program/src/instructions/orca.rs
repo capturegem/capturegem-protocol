@@ -1,17 +1,31 @@
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface, TransferChecked};
 use anchor_spl::associated_token::AssociatedToken;
 use crate::state::*;
 use crate::errors::ProtocolError;
 
-// Import Orca Whirlpool client SDK
-// This provides CPI-ready instructions and account structures
-use orca_whirlpools_client::instructions as orca_ix;
-use orca_whirlpools_client::accounts as orca_accounts;
-
 /// Orca Whirlpool Program ID (Mainnet/Devnet)
-pub const ORCA_WHIRLPOOL_PROGRAM_ID: Pubkey = solana_program::pubkey!("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc");
+pub const ORCA_WHIRLPOOL_PROGRAM_ID: Pubkey = pubkey!("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc");
+
+// ============================================================================
+// ORCA INSTRUCTION DISCRIMINATORS
+// These are the 8-byte discriminators for Orca Whirlpool instructions
+// ============================================================================
+
+/// Discriminator for initialize_pool_v2 instruction
+const INITIALIZE_POOL_V2_DISCRIMINATOR: [u8; 8] = [207, 45, 87, 242, 27, 63, 204, 67];
+
+/// Discriminator for open_position_with_metadata instruction  
+const OPEN_POSITION_WITH_METADATA_DISCRIMINATOR: [u8; 8] = [242, 16, 12, 155, 61, 101, 151, 133];
+
+/// Discriminator for increase_liquidity_v2 instruction
+const INCREASE_LIQUIDITY_V2_DISCRIMINATOR: [u8; 8] = [133, 29, 89, 223, 69, 238, 176, 10];
+
+// ============================================================================
+// ACCOUNT STRUCTURES
+// ============================================================================
 
 #[derive(Accounts)]
 pub struct InitializeOrcaPool<'info> {
@@ -40,6 +54,14 @@ pub struct InitializeOrcaPool<'info> {
     /// Whirlpool config account (contains fee tiers and protocol settings)
     /// CHECK: Validated by Orca program
     pub whirlpool_config: UncheckedAccount<'info>,
+
+    /// Token badge A (for token extensions)
+    /// CHECK: Validated by Orca program
+    pub token_badge_a: UncheckedAccount<'info>,
+
+    /// Token badge B (for token extensions)
+    /// CHECK: Validated by Orca program
+    pub token_badge_b: UncheckedAccount<'info>,
 
     /// The whirlpool account to be initialized
     /// CHECK: PDA derived from Orca program, validated by Orca
@@ -73,72 +95,65 @@ pub struct InitializeOrcaPool<'info> {
 }
 
 /// Initialize an Orca Whirlpool for the collection token paired with CAPGM
-/// 
-/// Uses the official Orca Whirlpools SDK to create a concentrated liquidity pool.
-/// 
-/// ⚠️  IMPORTANT: Calculate `initial_sqrt_price` CLIENT-SIDE using @orca-so/whirlpools-sdk
-/// 
-/// Parameters:
-/// - tick_spacing: Determines price granularity (1, 64, or 128)
-/// - initial_sqrt_price: Initial price in Q64.64 format (calculate with PriceMath.priceToSqrtPriceX64)
 pub fn initialize_orca_pool(
     ctx: Context<InitializeOrcaPool>,
     tick_spacing: u16,
     initial_sqrt_price: u128,
 ) -> Result<()> {
-    msg!("Initializing Orca Whirlpool using official SDK");
+    msg!("Initializing Orca Whirlpool");
     msg!("Collection: {}", ctx.accounts.collection.collection_id);
     msg!("Pool: {}", ctx.accounts.whirlpool.key());
     msg!("Tick Spacing: {}", tick_spacing);
     msg!("Initial Sqrt Price: {}", initial_sqrt_price);
 
-    // Build the initialize_pool_v2 instruction using Orca SDK
-    let ix = orca_ix::InitializePoolV2 {
-        whirlpools_config: ctx.accounts.whirlpool_config.key(),
-        token_mint_a: ctx.accounts.collection_mint.key(),
-        token_mint_b: ctx.accounts.capgm_mint.key(),
-        whirlpool: ctx.accounts.whirlpool.key(),
-        token_vault_a: ctx.accounts.token_vault_a.key(),
-        token_vault_b: ctx.accounts.token_vault_b.key(),
-        fee_tier: ctx.accounts.fee_tier.key(),
-        funder: ctx.accounts.creator.key(),
-        token_program_a: ctx.accounts.token_program.key(),
-        token_program_b: ctx.accounts.token_program.key(),
-        system_program: ctx.accounts.system_program.key(),
-        rent: ctx.accounts.rent.key(),
+    // Build instruction data
+    let mut data = Vec::with_capacity(8 + 2 + 16);
+    data.extend_from_slice(&INITIALIZE_POOL_V2_DISCRIMINATOR);
+    data.extend_from_slice(&tick_spacing.to_le_bytes());
+    data.extend_from_slice(&initial_sqrt_price.to_le_bytes());
+
+    // Build account metas
+    let accounts = vec![
+        AccountMeta::new_readonly(ctx.accounts.whirlpool_config.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.collection_mint.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.capgm_mint.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.token_badge_a.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.token_badge_b.key(), false),
+        AccountMeta::new(ctx.accounts.creator.key(), true), // funder
+        AccountMeta::new(ctx.accounts.whirlpool.key(), false),
+        AccountMeta::new(ctx.accounts.token_vault_a.key(), false),
+        AccountMeta::new(ctx.accounts.token_vault_b.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.fee_tier.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.token_program.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.token_program.key(), false), // token_program_b
+        AccountMeta::new_readonly(ctx.accounts.system_program.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.rent.key(), false),
+    ];
+
+    let instruction = Instruction {
+        program_id: ORCA_WHIRLPOOL_PROGRAM_ID,
+        accounts,
+        data,
     };
 
-    let ix_data = orca_ix::InitializePoolV2InstructionData {
-        tick_spacing,
-        initial_sqrt_price,
-    };
-
-    // Create the instruction
-    let instruction = orca_ix::initialize_pool_v2(
-        ctx.accounts.whirlpool_program.key(),
-        ix.into(),
-        ix_data,
-    );
-
-    // Execute CPI to Orca Whirlpool program
-    // Note: Using invoke_signed with empty seeds (&[]) is equivalent to invoke()
-    // If the Collection PDA needed to sign, you would pass PDA seeds here
     invoke_signed(
         &instruction,
         &[
             ctx.accounts.whirlpool_config.to_account_info(),
             ctx.accounts.collection_mint.to_account_info(),
             ctx.accounts.capgm_mint.to_account_info(),
+            ctx.accounts.token_badge_a.to_account_info(),
+            ctx.accounts.token_badge_b.to_account_info(),
+            ctx.accounts.creator.to_account_info(),
             ctx.accounts.whirlpool.to_account_info(),
             ctx.accounts.token_vault_a.to_account_info(),
             ctx.accounts.token_vault_b.to_account_info(),
             ctx.accounts.fee_tier.to_account_info(),
-            ctx.accounts.creator.to_account_info(),
             ctx.accounts.token_program.to_account_info(),
             ctx.accounts.system_program.to_account_info(),
             ctx.accounts.rent.to_account_info(),
         ],
-        &[], // No PDA signer seeds needed for pool initialization
+        &[],
     )?;
 
     msg!("Orca Whirlpool initialized successfully!");
@@ -204,82 +219,75 @@ pub struct OpenOrcaPosition<'info> {
     pub metadata_update_auth: UncheckedAccount<'info>,
 }
 
-/// Open a liquidity position in the Orca Whirlpool using the official SDK
-/// 
-/// Creates a position NFT that represents ownership of liquidity in a specific price range.
-/// 
-/// ⚠️  IMPORTANT: 
-/// - Calculate `tick_lower_index` and `tick_upper_index` CLIENT-SIDE using TickUtil.priceToTickIndex
-/// - By default, the position NFT is owned by the `creator` (signer), NOT the protocol
-/// - If the protocol should control liquidity, change `owner` to a PDA and add signer seeds
-/// 
-/// Parameters:
-/// - tick_lower_index: The lower bound of the price range (calculate with TickUtil)
-/// - tick_upper_index: The upper bound of the price range (calculate with TickUtil)
+/// Open a liquidity position in the Orca Whirlpool
 pub fn open_orca_position(
     ctx: Context<OpenOrcaPosition>,
     tick_lower_index: i32,
     tick_upper_index: i32,
 ) -> Result<()> {
-    msg!("Opening Orca position using official SDK");
+    msg!("Opening Orca position (Collection PDA will own the NFT)");
     msg!("Tick range: [{}, {}]", tick_lower_index, tick_upper_index);
+    msg!("Position NFT owner: {}", ctx.accounts.collection.key());
 
-    // Validate tick indices
     require!(
         tick_lower_index < tick_upper_index,
         ProtocolError::InvalidFeeConfig
     );
 
-    // Build the open_position_with_metadata instruction using Orca SDK
-    let ix = orca_ix::OpenPositionWithMetadata {
-        whirlpool: ctx.accounts.whirlpool.key(),
-        position: ctx.accounts.position.key(),
-        position_mint: ctx.accounts.position_mint.key(),
-        position_metadata_account: ctx.accounts.position_metadata.key(),
-        position_token_account: ctx.accounts.position_token_account.key(),
-        funder: ctx.accounts.creator.key(),
-        owner: ctx.accounts.creator.key(), // ⚠️  User owns the position, not the protocol
-        metadata_program: ctx.accounts.metadata_program.key(),
-        metadata_update_auth: ctx.accounts.metadata_update_auth.key(),
-        token_program: ctx.accounts.token_program.key(),
-        system_program: ctx.accounts.system_program.key(),
-        rent: ctx.accounts.rent.key(),
-        associated_token_program: ctx.accounts.associated_token_program.key(),
+    // Build instruction data
+    // Format: discriminator + bump (u8) + tick_lower_index (i32) + tick_upper_index (i32)
+    let mut data = Vec::with_capacity(8 + 1 + 4 + 4);
+    data.extend_from_slice(&OPEN_POSITION_WITH_METADATA_DISCRIMINATOR);
+    data.push(0u8); // bump placeholder - Orca will calculate
+    data.extend_from_slice(&tick_lower_index.to_le_bytes());
+    data.extend_from_slice(&tick_upper_index.to_le_bytes());
+
+    // Build account metas
+    let accounts = vec![
+        AccountMeta::new(ctx.accounts.creator.key(), true), // funder
+        AccountMeta::new_readonly(ctx.accounts.collection.key(), false), // owner (Collection PDA)
+        AccountMeta::new(ctx.accounts.position.key(), false),
+        AccountMeta::new(ctx.accounts.position_mint.key(), true),
+        AccountMeta::new(ctx.accounts.position_metadata.key(), false),
+        AccountMeta::new(ctx.accounts.position_token_account.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.whirlpool.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.token_program.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.system_program.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.rent.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.associated_token_program.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.metadata_program.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.metadata_update_auth.key(), false),
+    ];
+
+    let instruction = Instruction {
+        program_id: ORCA_WHIRLPOOL_PROGRAM_ID,
+        accounts,
+        data,
     };
 
-    let ix_data = orca_ix::OpenPositionWithMetadataInstructionData {
-        tick_lower_index,
-        tick_upper_index,
-    };
-
-    // Create the instruction
-    let instruction = orca_ix::open_position_with_metadata(
-        ctx.accounts.whirlpool_program.key(),
-        ix.into(),
-        ix_data,
-    );
-
-    // Execute CPI to Orca Whirlpool program
     invoke_signed(
         &instruction,
         &[
-            ctx.accounts.whirlpool.to_account_info(),
+            ctx.accounts.creator.to_account_info(),
+            ctx.accounts.collection.to_account_info(),
             ctx.accounts.position.to_account_info(),
             ctx.accounts.position_mint.to_account_info(),
             ctx.accounts.position_metadata.to_account_info(),
             ctx.accounts.position_token_account.to_account_info(),
-            ctx.accounts.creator.to_account_info(),
-            ctx.accounts.metadata_program.to_account_info(),
-            ctx.accounts.metadata_update_auth.to_account_info(),
+            ctx.accounts.whirlpool.to_account_info(),
             ctx.accounts.token_program.to_account_info(),
             ctx.accounts.system_program.to_account_info(),
             ctx.accounts.rent.to_account_info(),
             ctx.accounts.associated_token_program.to_account_info(),
+            ctx.accounts.metadata_program.to_account_info(),
+            ctx.accounts.metadata_update_auth.to_account_info(),
         ],
-        &[], // If protocol PDA should own position, add signer seeds here
+        &[],
     )?;
 
-    msg!("Position opened successfully: {}", ctx.accounts.position.key());
+    msg!("Position opened successfully!");
+    msg!("   Position: {}", ctx.accounts.position.key());
+    msg!("   NFT Owner: {} (Collection PDA)", ctx.accounts.collection.key());
     
     Ok(())
 }
@@ -291,7 +299,6 @@ pub struct DepositLiquidityToOrca<'info> {
     pub creator: Signer<'info>,
 
     /// Collection PDA - The authority that owns the liquidity position
-    /// This PDA will sign the Orca CPI to deposit liquidity
     #[account(
         mut,
         seeds = [b"collection", collection.owner.as_ref(), collection.collection_id.as_bytes()],
@@ -314,8 +321,6 @@ pub struct DepositLiquidityToOrca<'info> {
     pub position: UncheckedAccount<'info>,
 
     /// Position Token Account - Holds the position NFT
-    /// ⚠️ CRITICAL: Must be owned by Collection PDA (not the user!)
-    /// This ensures the protocol controls the liquidity, not individual users
     #[account(
         mut,
         constraint = position_token_account.owner == collection.key() @ ProtocolError::Unauthorized,
@@ -327,10 +332,6 @@ pub struct DepositLiquidityToOrca<'info> {
     /// CHECK: Validated by constraint on position_token_account
     pub position_mint: UncheckedAccount<'info>,
 
-    // =========================================================================
-    // TOKEN A (Collection Token)
-    // =========================================================================
-    
     /// Collection Token Mint
     #[account(
         constraint = token_mint_a.key() == collection.mint @ ProtocolError::Unauthorized
@@ -338,7 +339,6 @@ pub struct DepositLiquidityToOrca<'info> {
     pub token_mint_a: InterfaceAccount<'info, Mint>,
 
     /// Collection's Reserve for Token A
-    /// Already funded by mint_collection_tokens() with 80% of supply
     #[account(
         mut,
         associated_token::mint = token_mint_a,
@@ -346,15 +346,10 @@ pub struct DepositLiquidityToOrca<'info> {
     )]
     pub collection_reserve_a: InterfaceAccount<'info, TokenAccount>,
 
-    // =========================================================================
-    // TOKEN B (CAPGM / Quote Token) - "FLASH DEPOSIT" PATTERN
-    // =========================================================================
-    
     /// CAPGM Token Mint (the quote/base pair token)
     pub token_mint_b: InterfaceAccount<'info, Mint>,
 
     /// Creator's Source Account for Token B (CAPGM)
-    /// The user provides CAPGM tokens from here
     #[account(
         mut,
         constraint = creator_token_b.mint == token_mint_b.key() @ ProtocolError::Unauthorized,
@@ -363,8 +358,6 @@ pub struct DepositLiquidityToOrca<'info> {
     pub creator_token_b: InterfaceAccount<'info, TokenAccount>,
 
     /// Collection's Reserve for Token B
-    /// ⚠️ "FLASH DEPOSIT": We transfer CAPGM from creator → here first,
-    /// then the Collection PDA (owning both reserves) signs the Orca CPI
     #[account(
         init_if_needed,
         payer = creator,
@@ -373,10 +366,6 @@ pub struct DepositLiquidityToOrca<'info> {
     )]
     pub collection_reserve_b: InterfaceAccount<'info, TokenAccount>,
 
-    // =========================================================================
-    // ORCA WHIRLPOOL ACCOUNTS
-    // =========================================================================
-    
     /// Whirlpool's token vault for Collection tokens
     /// CHECK: Managed by Orca program
     #[account(mut)]
@@ -407,42 +396,6 @@ pub struct DepositLiquidityToOrca<'info> {
 }
 
 /// Deposit liquidity into an Orca Whirlpool using the "Flash Deposit" pattern
-/// 
-/// This instruction implements a sophisticated flow where the Collection PDA owns
-/// and controls the liquidity, not individual users.
-/// 
-/// ## Flash Deposit Pattern
-/// 
-/// 1. **Pull**: Transfer CAPGM tokens from creator → Collection's reserve B
-/// 2. **Deposit**: Collection PDA (owning both reserves A & B) signs Orca CPI
-/// 3. **Complete**: Liquidity is deposited with Collection PDA as the position authority
-/// 
-/// This ensures:
-/// - Protocol controls all liquidity (not bypassable by users)
-/// - Position NFT is owned by Collection PDA
-/// - Users cannot withdraw liquidity directly on Orca's frontend
-/// 
-/// ## Why Flash Deposit?
-/// 
-/// Orca requires that `position_authority` owns both token source accounts.
-/// Since the Collection PDA must be the position authority (to control liquidity),
-/// we must first transfer the user's CAPGM → Collection's reserve, then perform
-/// the CPI with the Collection PDA signing.
-/// 
-/// This happens atomically in one transaction, so the user's tokens are never
-/// at risk - either the entire flow succeeds or it all reverts.
-/// 
-/// ⚠️  IMPORTANT: All parameters must be calculated CLIENT-SIDE
-/// 
-/// Use the Orca SDK to calculate proper amounts based on:
-/// - Current pool price
-/// - Position's tick range
-/// - Desired deposit amount in one token
-/// 
-/// Parameters:
-/// - liquidity_amount: The amount of liquidity to add (in liquidity units, NOT token amounts)
-/// - token_max_a: Maximum collection tokens willing to deposit (slippage protection)
-/// - token_max_b: Maximum CAPGM tokens willing to deposit (slippage protection)
 pub fn deposit_liquidity_to_orca(
     ctx: Context<DepositLiquidityToOrca>,
     liquidity_amount: u128,
@@ -454,16 +407,12 @@ pub fn deposit_liquidity_to_orca(
     msg!("Max token A (Collection): {}", token_max_a);
     msg!("Max token B (CAPGM): {}", token_max_b);
 
-    // Validate amounts
     require!(
         liquidity_amount > 0 && token_max_a > 0 && token_max_b > 0,
         ProtocolError::InvalidFeeConfig
     );
 
-    // =========================================================================
-    // STEP 1: PULL - Transfer CAPGM from Creator → Collection Reserve B
-    // =========================================================================
-    
+    // STEP 1: Transfer CAPGM from Creator → Collection Reserve B
     msg!("Step 1: Pulling {} CAPGM tokens to Collection Reserve B...", token_max_b);
     
     let transfer_accounts = TransferChecked {
@@ -484,15 +433,11 @@ pub fn deposit_liquidity_to_orca(
         ctx.accounts.token_mint_b.decimals
     )?;
 
-    msg!("✓ CAPGM tokens transferred to Collection Reserve B");
+    msg!("CAPGM tokens transferred to Collection Reserve B");
 
-    // =========================================================================
-    // STEP 2: DEPOSIT - Collection PDA signs Orca CPI
-    // =========================================================================
-    
+    // STEP 2: Build and execute Orca CPI
     msg!("Step 2: Preparing Orca CPI with Collection PDA as authority...");
     
-    // Prepare PDA signer seeds
     let collection = &ctx.accounts.collection;
     let bump = collection.bump;
     let seeds = &[
@@ -503,111 +448,65 @@ pub fn deposit_liquidity_to_orca(
     ];
     let signer_seeds = &[&seeds[..]];
 
-    // Build the Orca increase_liquidity_v2 instruction
-    // CRITICAL: position_authority = Collection PDA (owns the position)
-    let ix = orca_ix::IncreaseLiquidityV2 {
-        whirlpool: ctx.accounts.whirlpool.key(),
-        position: ctx.accounts.position.key(),
-        position_token_account: ctx.accounts.position_token_account.key(),
-        position_authority: ctx.accounts.collection.key(), // ✅ Collection PDA signs
-        token_owner_account_a: ctx.accounts.collection_reserve_a.key(), // ✅ 80% from minting
-        token_owner_account_b: ctx.accounts.collection_reserve_b.key(), // ✅ Just transferred
-        token_vault_a: ctx.accounts.token_vault_a.key(),
-        token_vault_b: ctx.accounts.token_vault_b.key(),
-        tick_array_lower: ctx.accounts.tick_array_lower.key(),
-        tick_array_upper: ctx.accounts.tick_array_upper.key(),
-        token_program_a: ctx.accounts.token_program.key(),
-        token_program_b: ctx.accounts.token_program.key(),
-        memo_program: ctx.accounts.system_program.key(), // Use system as dummy if no memo
-    };
+    // Build instruction data
+    let mut data = Vec::with_capacity(8 + 16 + 8 + 8 + 1);
+    data.extend_from_slice(&INCREASE_LIQUIDITY_V2_DISCRIMINATOR);
+    data.extend_from_slice(&liquidity_amount.to_le_bytes());
+    data.extend_from_slice(&token_max_a.to_le_bytes());
+    data.extend_from_slice(&token_max_b.to_le_bytes());
+    data.push(0u8); // remaining_accounts_info: None (encoded as Option::None)
 
-    let ix_data = orca_ix::IncreaseLiquidityV2InstructionData {
-        liquidity_amount,
-        token_max_a,
-        token_max_b,
-        remaining_accounts_info: None, // For transfer hooks if needed
-    };
+    // Build account metas
+    let accounts = vec![
+        AccountMeta::new(ctx.accounts.whirlpool.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.token_program.key(), false), // token_program_a
+        AccountMeta::new_readonly(ctx.accounts.token_program.key(), false), // token_program_b
+        AccountMeta::new_readonly(ctx.accounts.system_program.key(), false), // memo_program (dummy)
+        AccountMeta::new_readonly(ctx.accounts.collection.key(), true), // position_authority (signer)
+        AccountMeta::new(ctx.accounts.position.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.position_token_account.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.token_mint_a.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.token_mint_b.key(), false),
+        AccountMeta::new(ctx.accounts.collection_reserve_a.key(), false), // token_owner_account_a
+        AccountMeta::new(ctx.accounts.collection_reserve_b.key(), false), // token_owner_account_b
+        AccountMeta::new(ctx.accounts.token_vault_a.key(), false),
+        AccountMeta::new(ctx.accounts.token_vault_b.key(), false),
+        AccountMeta::new(ctx.accounts.tick_array_lower.key(), false),
+        AccountMeta::new(ctx.accounts.tick_array_upper.key(), false),
+    ];
 
-    let instruction = orca_ix::increase_liquidity_v2(
-        ctx.accounts.whirlpool_program.key(),
-        ix.into(),
-        ix_data,
-    );
+    let instruction = Instruction {
+        program_id: ORCA_WHIRLPOOL_PROGRAM_ID,
+        accounts,
+        data,
+    };
 
     msg!("Step 3: Executing Orca CPI with Collection PDA signature...");
 
-    // Execute CPI to Orca Whirlpool program
-    // The Collection PDA signs, authorizing the transfer from both reserves
     invoke_signed(
         &instruction,
         &[
             ctx.accounts.whirlpool.to_account_info(),
+            ctx.accounts.token_program.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
+            ctx.accounts.collection.to_account_info(),
             ctx.accounts.position.to_account_info(),
             ctx.accounts.position_token_account.to_account_info(),
-            ctx.accounts.collection.to_account_info(), // ✅ PDA Signer
-            ctx.accounts.collection_reserve_a.to_account_info(), // ✅ Collection tokens
-            ctx.accounts.collection_reserve_b.to_account_info(), // ✅ CAPGM tokens
+            ctx.accounts.token_mint_a.to_account_info(),
+            ctx.accounts.token_mint_b.to_account_info(),
+            ctx.accounts.collection_reserve_a.to_account_info(),
+            ctx.accounts.collection_reserve_b.to_account_info(),
             ctx.accounts.token_vault_a.to_account_info(),
             ctx.accounts.token_vault_b.to_account_info(),
             ctx.accounts.tick_array_lower.to_account_info(),
             ctx.accounts.tick_array_upper.to_account_info(),
-            ctx.accounts.token_program.to_account_info(),
-            ctx.accounts.system_program.to_account_info(),
         ],
-        signer_seeds, // ✅ Collection PDA signs the CPI
+        signer_seeds,
     )?;
 
     msg!("=== Flash Deposit Complete! ===");
-    msg!("✓ Liquidity deposited to Orca Whirlpool");
-    msg!("✓ Position owned by Collection PDA: {}", collection.key());
-    msg!("✓ Collection Reserve A: {}", ctx.accounts.collection_reserve_a.key());
-    msg!("✓ Collection Reserve B: {}", ctx.accounts.collection_reserve_b.key());
+    msg!("Liquidity deposited to Orca Whirlpool");
+    msg!("Position owned by Collection PDA: {}", collection.key());
     
     Ok(())
 }
-
-// ============================================================================
-// IMPORTANT: Price and Tick Calculations Should Be Done CLIENT-SIDE
-// ============================================================================
-//
-// ⚠️  DO NOT perform floating-point math (f64, ln(), pow(), etc.) on-chain!
-//
-// Reasons:
-// 1. High Compute Unit (CU) cost on Solana runtime
-// 2. Potential non-deterministic behavior across validators
-// 3. Precision loss in floating-point operations
-//
-// ✅  Instead, calculate these values in your TypeScript/JavaScript client:
-//
-// Example using @orca-so/whirlpools-sdk:
-//
-// ```typescript
-// import { PriceMath, TickUtil } from "@orca-so/whirlpools-sdk";
-//
-// // Calculate sqrt price from regular price
-// const price = 0.01; // 1 Collection Token = 0.01 CAPGM
-// const sqrtPriceX64 = PriceMath.priceToSqrtPriceX64(price, decimalsA, decimalsB);
-//
-// // Calculate tick index from price
-// const tickIndex = TickUtil.priceToTickIndex(price, decimalsA, decimalsB);
-//
-// // Pass these pre-calculated values to your instruction
-// await program.methods
-//   .initializeOrcaPool(tickSpacing, sqrtPriceX64)
-//   .accounts({ ... })
-//   .rpc();
-// ```
-//
-// For PDA derivation:
-// ```typescript
-// import { PDAUtil } from "@orca-so/whirlpools-sdk";
-//
-// const whirlpoolPda = PDAUtil.getWhirlpool(
-//   ORCA_WHIRLPOOL_PROGRAM_ID,
-//   whirlpoolsConfigKey,
-//   tokenMintA,
-//   tokenMintB,
-//   tickSpacing
-// );
-// ```
-// ============================================================================

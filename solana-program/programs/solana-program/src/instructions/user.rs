@@ -160,7 +160,8 @@ pub struct MintCollectionTokens<'info> {
     )]
     pub creator_token_account: InterfaceAccount<'info, TokenAccount>,
 
-    /// Claim vault token account (PDA) to receive 10% of minted tokens
+    /// CHECK: Claim vault token account (PDA) to receive 10% of minted tokens
+    /// Validated by constraint against collection.claim_vault
     #[account(
         mut,
         constraint = claim_vault.key() == collection.claim_vault @ ProtocolError::Unauthorized
