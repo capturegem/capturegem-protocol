@@ -17,22 +17,13 @@ pub struct RegisterHost<'info> {
     #[account(
         init,
         payer = pinner,
-        space = 8 + 32 + 32 + 8 + 1 + 8 + 16, // Adjusted space
+        space = 8 + 32 + 32 + 1 + 8 + 16, // Adjusted space: removed last_audit_pass (i64)
         seeds = [b"host_bond", pinner.key().as_ref(), collection.key().as_ref()],
         bump
     )]
     pub pinner_state: Account<'info, PinnerState>,
 
     pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct SubmitAudit<'info> {
-    #[account(mut)]
-    pub authority: Signer<'info>, // Must be a designated auditor/validator
-
-    #[account(mut)]
-    pub pinner_state: Account<'info, PinnerState>,
 }
 
 #[derive(Accounts)]
@@ -62,7 +53,6 @@ pub fn register_collection_host(ctx: Context<RegisterHost>) -> Result<()> {
 
     pinner_state.collection = collection.key();
     pinner_state.pinner = ctx.accounts.pinner.key();
-    pinner_state.last_audit_pass = Clock::get()?.unix_timestamp;
     pinner_state.is_active = true;
 
     // Set Shares (1 share per pinner for now, could be based on storage size)
@@ -80,35 +70,12 @@ pub fn register_collection_host(ctx: Context<RegisterHost>) -> Result<()> {
     Ok(())
 }
 
-pub fn submit_audit_result(ctx: Context<SubmitAudit>, success: bool) -> Result<()> {
-    // In a real app, check if ctx.accounts.authority is a valid "Fisherman" validator
-    let pinner_state = &mut ctx.accounts.pinner_state;
-    
-    if success {
-        pinner_state.last_audit_pass = Clock::get()?.unix_timestamp;
-        pinner_state.is_active = true;
-    } else {
-        // Slashing logic could go here
-        pinner_state.is_active = false;
-    }
-    Ok(())
-}
-
 pub fn claim_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
     let collection = &mut ctx.accounts.collection;
     let pinner_state = &mut ctx.accounts.pinner_state;
-    let clock = Clock::get()?;
 
-    // 1. Check audit window (must have passed audit within last 7 days)
-    let audit_window = 7 * 86400; // 7 days in seconds
-    let time_since_audit = clock.unix_timestamp
-        .checked_sub(pinner_state.last_audit_pass)
-        .ok_or(ProtocolError::MathOverflow)?;
-    
-    require!(
-        time_since_audit <= audit_window && pinner_state.is_active,
-        ProtocolError::AuditWindowExpired
-    );
+    // 1. Verify pinner is active
+    require!(pinner_state.is_active, ProtocolError::Unauthorized);
 
     // 2. Calculate accumulated reward
     // pending = (shares * acc_reward_per_share) - reward_debt

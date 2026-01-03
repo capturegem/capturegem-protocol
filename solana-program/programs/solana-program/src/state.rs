@@ -100,7 +100,6 @@ impl PeerTrustState {
 pub struct PinnerState {
     pub collection: Pubkey,
     pub pinner: Pubkey,
-    pub last_audit_pass: i64,
     pub is_active: bool,
     
     // Reward Logic

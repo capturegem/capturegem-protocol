@@ -9,7 +9,7 @@ Tests are organized into separate files by functionality:
 - `protocol.test.ts` - Protocol initialization tests
 - `user.test.ts` - User account and collection creation tests
 - `access.test.ts` - View rights and access token tests
-- `pinner.test.ts` - Pinner registration, audit, and reward tests
+- `pinner.test.ts` - Pinner registration and reward tests
 - `treasury.test.ts` - Fee harvesting and distribution tests
 - `staking.test.ts` - Moderator staking and slashing tests
 - `performer.test.ts` - Performer escrow claiming tests

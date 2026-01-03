@@ -37,7 +37,6 @@ pub const SEED_STAKER_POSITION: &[u8] = b"staker_position";
 // Time Constants
 pub const SECONDS_IN_DAY: i64 = 86400;
 pub const VIEW_RIGHTS_VALIDITY_SECONDS: i64 = 90 * SECONDS_IN_DAY; // 90 Days
-pub const PINNER_AUDIT_WINDOW: i64 = 7 * SECONDS_IN_DAY; // 7 Days
 pub const CLAIM_VAULT_VESTING_SECONDS: i64 = 6 * 30 * SECONDS_IN_DAY; // 6 months
 pub const ESCROW_EXPIRY_SECONDS: i64 = 24 * 3600; // 24 hours
 

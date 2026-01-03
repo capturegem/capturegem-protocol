@@ -42,10 +42,6 @@ pub mod solana_program {
     pub fn claim_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
         instructions::pinner::claim_rewards(ctx)
     }
-    
-    pub fn submit_audit_result(ctx: Context<SubmitAudit>, success: bool) -> Result<()> {
-        instructions::pinner::submit_audit_result(ctx, success)
-    }
 
     pub fn harvest_fees(ctx: Context<HarvestFees>) -> Result<()> {
         instructions::treasury::harvest_fees(ctx)

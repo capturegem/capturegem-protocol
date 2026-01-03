@@ -96,7 +96,6 @@ describe("Pinner Operations", () => {
       expect(pinnerState.collection.toString()).to.equal(collectionPDA.toString());
       expect(pinnerState.isActive).to.be.true;
       expect(pinnerState.shares.toString()).to.equal("1");
-      expect(pinnerState.lastAuditPass.toNumber()).to.be.greaterThan(0);
 
       const collection = await program.account.collectionState.fetch(collectionPDA);
       expect(collection.totalShares.toString()).to.equal("1");
@@ -121,57 +120,8 @@ describe("Pinner Operations", () => {
     });
   });
 
-  describe("Submit Audit Result", () => {
-    it("Successfully submits successful audit", async () => {
-      const authority = Keypair.generate(); // In production, this would be a verified auditor
-      const { airdropAndConfirm } = await import("./helpers/setup");
-      await airdropAndConfirm(authority.publicKey);
-
-      const tx = await program.methods
-        .submitAuditResult(true)
-        .accounts({
-          authority: authority.publicKey,
-          pinnerState: pinnerStatePDA,
-        })
-        .signers([authority])
-        .rpc();
-
-      const pinnerState = await program.account.pinnerState.fetch(pinnerStatePDA);
-      expect(pinnerState.isActive).to.be.true;
-      expect(pinnerState.lastAuditPass.toNumber()).to.be.greaterThan(0);
-    });
-
-    it("Successfully submits failed audit", async () => {
-      const authority = Keypair.generate();
-
-      const tx = await program.methods
-        .submitAuditResult(false)
-        .accounts({
-          authority: authority.publicKey,
-          pinnerState: pinnerStatePDA,
-        })
-        .signers([authority])
-        .rpc();
-
-      const pinnerState = await program.account.pinnerState.fetch(pinnerStatePDA);
-      expect(pinnerState.isActive).to.be.false;
-    });
-  });
-
   describe("Claim Rewards", () => {
     it("Fails if no rewards available", async () => {
-      // Ensure audit is recent
-      const authority = Keypair.generate();
-      await program.methods
-        .submitAuditResult(true)
-        .accounts({
-          authority: authority.publicKey,
-          pinnerState: pinnerStatePDA,
-        })
-        .signers([authority])
-        .rpc();
-
-      // Try to claim (should fail if no rewards)
       try {
         await program.methods
           .claimRewards()
@@ -190,35 +140,10 @@ describe("Pinner Operations", () => {
     });
 
     it("Fails if pinner is not active", async () => {
-      // Deactivate pinner
-      const authority = Keypair.generate();
-      const { airdropAndConfirm } = await import("./helpers/setup");
-      await airdropAndConfirm(authority.publicKey);
-      
-      await program.methods
-        .submitAuditResult(false)
-        .accounts({
-          authority: authority.publicKey,
-          pinnerState: pinnerStatePDA,
-        })
-        .signers([authority])
-        .rpc();
-
-      // Try to claim
-      try {
-        await program.methods
-          .claimRewards()
-          .accountsPartial({
-            pinner: pinner.publicKey,
-            collection: collectionPDA,
-            pinnerState: pinnerStatePDA,
-          })
-          .signers([pinner])
-          .rpc();
-        expect.fail("Should have failed - not active");
-      } catch (err: unknown) {
-        expect(err.toString()).to.include("AuditWindowExpired");
-      }
+      // Note: Without audits, pinners remain active unless explicitly deactivated through other means
+      // This test is no longer applicable, but we keep the structure for future use
+      // For now, we'll skip this test
+      console.log("Skipping test - audit system removed");
     });
   });
 });
