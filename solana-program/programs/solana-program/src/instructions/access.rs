@@ -7,6 +7,7 @@ use anchor_spl::associated_token::AssociatedToken;
 use spl_token_2022::extension::{ExtensionType, StateWithExtensionsMut, BaseStateWithExtensionsMut};
 use spl_token_2022::state::Mint as MintState;
 use spl_token_2022::instruction::{transfer_checked as spl_transfer_checked, set_authority};
+use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
 use spl_token_2022::instruction::AuthorityType;
 use mpl_token_metadata::{
     instructions::create_metadata_accounts_v3,
@@ -866,6 +867,112 @@ pub fn release_escrow<'info>(
             );
         }
     }
+
+    // ============================================================================
+    // STEP: Sweep remaining dust and close escrow_token_account
+    // ============================================================================
+    // Due to integer division rounding, there may be a small amount of "dust" remaining
+    // in the escrow_token_account. We need to sweep it before closing the account.
+    
+    // Read actual token account balance to check for dust
+    // SPL Token account structure: mint (32 bytes) + owner (32 bytes) + amount (8 bytes) at offset 64
+    let token_account_data = ctx.accounts.escrow_token_account.try_borrow_data()?;
+    require!(
+        token_account_data.len() >= 72, // At least 64 + 8 bytes
+        ProtocolError::InvalidAccount
+    );
+    let amount_bytes = &token_account_data[64..72];
+    let actual_balance = u64::from_le_bytes(
+        amount_bytes.try_into().map_err(|_| ProtocolError::InvalidAccount)?
+    );
+    
+    // If there's remaining dust, sweep it to the last peer
+    // Note: If there are no peers, this shouldn't happen in practice, but if it does,
+    // the close_account will fail (token account must have zero balance to close)
+    if actual_balance > 0 {
+        require!(
+            !peer_wallets.is_empty(),
+            ProtocolError::InvalidAccount // Should have peers if there's dust to distribute
+        );
+        
+        // Sweep dust to last peer (who gets the rounding remainder)
+        let last_peer_idx = (peer_wallets.len() - 1) * 2;
+        let last_peer_token_account = &remaining_accounts[last_peer_idx];
+        
+        let escrow_seeds = [
+            SEED_ACCESS_ESCROW,
+            purchaser_key.as_ref(),
+            collection_key.as_ref(),
+            &[escrow_bump],
+        ];
+        let signer_seeds = &[&escrow_seeds[..]];
+
+        let transfer_instruction = spl_transfer_checked(
+            &token_program_key,
+            &escrow_token_account_key,
+            &mint_key,
+            last_peer_token_account.key,
+            &access_escrow_key,
+            &[],
+            actual_balance,
+            mint_decimals,
+        )?;
+
+        invoke_signed(
+            &transfer_instruction,
+            &[
+                ctx.accounts.escrow_token_account.to_account_info(),
+                ctx.accounts.collection_mint.to_account_info(),
+                last_peer_token_account.clone(),
+                access_escrow_account_info.clone(),
+                ctx.accounts.token_program.to_account_info(),
+            ],
+            signer_seeds,
+        )?;
+        
+        msg!("DustSwept: Amount={} Recipient={}", actual_balance, last_peer_token_account.key());
+    }
+    
+    // Close the escrow_token_account to prevent resource leak
+    // The account must have zero token balance before closing
+    // After closing, the rent is returned to the destination account
+    let escrow_seeds = [
+        SEED_ACCESS_ESCROW,
+        purchaser_key.as_ref(),
+        collection_key.as_ref(),
+        &[escrow_bump],
+    ];
+    let signer_seeds = &[&escrow_seeds[..]];
+    
+    // Create CloseAccount instruction manually
+    // CloseAccount instruction discriminator: 9 (from SPL Token program)
+    // CloseAccount transfers remaining SOL (rent) to destination and closes the account
+    // Format: [instruction_discriminator]
+    let mut close_instruction_data = vec![9u8]; // CloseAccount instruction discriminator
+    
+    let close_instruction = Instruction {
+        program_id: token_program_key,
+        accounts: vec![
+            AccountMeta::new(escrow_token_account_key, false), // Account to close (writable)
+            AccountMeta::new(*ctx.accounts.purchaser.key, false), // Destination for rent (writable)
+            AccountMeta::new_readonly(access_escrow_key, true), // Authority (signer, but we'll use invoke_signed)
+        ],
+        data: close_instruction_data,
+    };
+    
+    // Invoke with PDA as signer
+    invoke_signed(
+        &close_instruction,
+        &[
+            ctx.accounts.escrow_token_account.to_account_info(),
+            ctx.accounts.purchaser.to_account_info(),
+            access_escrow_account_info.clone(),
+            ctx.accounts.token_program.to_account_info(),
+        ],
+        signer_seeds,
+    )?;
+    
+    msg!("EscrowTokenAccountClosed: Account={}", escrow_token_account_key);
 
     // Update collection's total trust score and clear the escrow
     let collection = &mut ctx.accounts.collection;
