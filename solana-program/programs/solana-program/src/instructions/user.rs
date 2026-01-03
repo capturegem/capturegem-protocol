@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface, MintTo};
+use anchor_spl::associated_token::AssociatedToken;
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
@@ -138,12 +139,12 @@ pub struct MintCollectionTokens<'info> {
     #[account(
         mut,
         seeds = [b"collection", collection.owner.as_ref(), collection.collection_id.as_bytes()],
-        bump,
+        bump = collection.bump,
         constraint = collection.owner == creator.key() @ ProtocolError::Unauthorized
     )]
     pub collection: Account<'info, CollectionState>,
 
-    /// CHECK: The collection token mint (PDA derived from collection)
+    /// The collection token mint (PDA derived from collection)
     #[account(
         mut,
         seeds = [b"mint", collection.key().as_ref()],
@@ -159,29 +160,63 @@ pub struct MintCollectionTokens<'info> {
     )]
     pub creator_token_account: InterfaceAccount<'info, TokenAccount>,
 
-    /// CHECK: Claim vault token account (PDA) to receive 10% of minted tokens
+    /// Claim vault token account (PDA) to receive 10% of minted tokens
     #[account(
         mut,
         constraint = claim_vault.key() == collection.claim_vault @ ProtocolError::Unauthorized
     )]
     pub claim_vault: UncheckedAccount<'info>,
 
-    /// CHECK: Orca DEX liquidity pool token account (or pool address)
-    /// This account will receive 80% of the minted tokens for liquidity provision
+    /// ✅ CORRECTED: Liquidity Reserve Account (receives 80%)
+    /// 
+    /// This is an Associated Token Account (ATA) owned by the Collection PDA.
+    /// It acts as a "staging" or "reserve" wallet for the protocol.
+    /// 
+    /// ⚠️ IMPORTANT: You CANNOT mint directly to an Orca Pool address because:
+    /// 1. The Whirlpool PDA is a data account, not a token account
+    /// 2. Even minting to Orca's vault wouldn't update liquidity state
+    /// 3. You wouldn't receive a position NFT
+    /// 
+    /// The correct workflow is:
+    /// 1. Mint 80% here (to liquidity_reserve)
+    /// 2. Call initialize_orca_pool() to create the pool
+    /// 3. Call deposit_liquidity_to_orca() to move tokens from here → Orca
     #[account(
-        mut,
-        constraint = orca_liquidity_pool.key() == collection.pool_address @ ProtocolError::Unauthorized
+        init_if_needed,
+        payer = creator,
+        associated_token::mint = mint,
+        associated_token::authority = collection,
     )]
-    pub orca_liquidity_pool: UncheckedAccount<'info>,
-
-    /// CHECK: Orca program ID (for CPI calls to Orca DEX)
-    /// In production, this should be the official Orca Whirlpool or StableSwap program ID
-    pub orca_program: UncheckedAccount<'info>,
+    pub liquidity_reserve: InterfaceAccount<'info, TokenAccount>,
 
     pub token_program: Interface<'info, TokenInterface>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
 
+/// Mint collection tokens with automatic 3-way distribution:
+/// - 10% to Creator
+/// - 10% to Claim Vault (for performer/contributor claims)
+/// - 80% to Liquidity Reserve (staging area for Orca pool)
+/// 
+/// ⚠️ CRITICAL: This does NOT directly add liquidity to Orca!
+/// 
+/// The 80% is minted to a "staging" account (liquidity_reserve) owned by the Collection PDA.
+/// To actually create liquidity on Orca, you must follow this workflow:
+/// 
+/// 1. **This instruction**: Mints 80% to `liquidity_reserve` (Collection's ATA)
+/// 2. **initialize_orca_pool()**: Creates the Whirlpool on Orca
+/// 3. **deposit_liquidity_to_orca()**: Transfers tokens from `liquidity_reserve` → Orca pool
+/// 
+/// Why we can't mint directly to Orca:
+/// - Orca's Whirlpool address is a data account, not a token account
+/// - Minting to Orca's vault wouldn't update liquidity state or position tracking
+/// - You wouldn't receive a position NFT representing your liquidity
+/// 
+/// This multi-step approach is necessary due to:
+/// - Compute Unit limits (each step is expensive)
+/// - Transaction size limits (Orca requires many accounts)
+/// - Proper position NFT issuance
 pub fn mint_collection_tokens(
     ctx: Context<MintCollectionTokens>,
     amount: u64,
@@ -190,7 +225,6 @@ pub fn mint_collection_tokens(
 
     let collection = &ctx.accounts.collection;
     let mint = &ctx.accounts.mint;
-    let creator = &ctx.accounts.creator;
 
     // Verify the mint matches the collection's mint
     require!(
@@ -198,8 +232,8 @@ pub fn mint_collection_tokens(
         ProtocolError::Unauthorized
     );
 
-    // Calculate distribution: 80% to Orca, 10% to creator, 10% to claim vault
-    let orca_amount = amount
+    // Calculate distribution: 80% to reserve, 10% to creator, 10% to claim vault
+    let reserve_amount = amount
         .checked_mul(80)
         .ok_or(ProtocolError::MathOverflow)?
         .checked_div(100)
@@ -218,22 +252,19 @@ pub fn mint_collection_tokens(
         .ok_or(ProtocolError::MathOverflow)?;
 
     // Verify the split is correct (accounting for rounding)
-    let total_distributed = orca_amount
+    let total_distributed = reserve_amount
         .checked_add(creator_amount)
         .and_then(|v| v.checked_add(claim_vault_amount))
         .ok_or(ProtocolError::MathOverflow)?;
     
-    // Handle any rounding remainder by adjusting orca amount
+    // Handle any rounding remainder by adjusting reserve amount
     let remainder = amount.saturating_sub(total_distributed);
-    let final_orca_amount = orca_amount
+    let final_reserve_amount = reserve_amount
         .checked_add(remainder)
-        .unwrap_or(orca_amount);
-    let final_creator_amount = creator_amount;
-    let final_claim_vault_amount = claim_vault_amount;
+        .unwrap_or(reserve_amount);
 
-    // 1. Mint tokens to creator and Orca
-    // Since the mint authority is the collection PDA, we use CPI to mint
-    let collection_bump = ctx.bumps.collection;
+    // Prepare PDA signer seeds (Collection PDA is the mint authority)
+    let collection_bump = collection.bump;
     let seeds = &[
         b"collection",
         collection.owner.as_ref(),
@@ -242,66 +273,60 @@ pub fn mint_collection_tokens(
     ];
     let signer = &[&seeds[..]];
 
-    // 1. Mint tokens to creator's account (10%)
-    let cpi_accounts = MintTo {
+    // 1. Mint 10% to creator's token account
+    let creator_cpi_accounts = MintTo {
         mint: ctx.accounts.mint.to_account_info(),
         to: ctx.accounts.creator_token_account.to_account_info(),
         authority: ctx.accounts.collection.to_account_info(),
     };
-    let cpi_program = ctx.accounts.token_program.to_account_info();
-    let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
-    anchor_spl::token_interface::mint_to(cpi_ctx, final_creator_amount)?;
+    let creator_cpi_ctx = CpiContext::new_with_signer(
+        ctx.accounts.token_program.to_account_info(),
+        creator_cpi_accounts,
+        signer
+    );
+    anchor_spl::token_interface::mint_to(creator_cpi_ctx, creator_amount)?;
 
-    // 2. Mint tokens to claim vault (10%)
-    let claim_vault_cpi_accounts = MintTo {
+    // 2. Mint 10% to claim vault
+    let vault_cpi_accounts = MintTo {
         mint: ctx.accounts.mint.to_account_info(),
         to: ctx.accounts.claim_vault.to_account_info(),
         authority: ctx.accounts.collection.to_account_info(),
     };
-    let claim_vault_cpi_program = ctx.accounts.token_program.to_account_info();
-    let claim_vault_cpi_ctx = CpiContext::new_with_signer(claim_vault_cpi_program, claim_vault_cpi_accounts, signer);
-    anchor_spl::token_interface::mint_to(claim_vault_cpi_ctx, final_claim_vault_amount)?;
+    let vault_cpi_ctx = CpiContext::new_with_signer(
+        ctx.accounts.token_program.to_account_info(),
+        vault_cpi_accounts,
+        signer
+    );
+    anchor_spl::token_interface::mint_to(vault_cpi_ctx, claim_vault_amount)?;
 
-    // 3. Mint tokens to Orca liquidity pool (80%)
-    // IMPORTANT: This mints tokens to a holding account, NOT directly to the Orca pool.
-    // After this instruction, you must:
-    // 1. Call initialize_orca_pool() if the pool doesn't exist yet
-    // 2. Call deposit_liquidity_to_orca() to transfer these tokens to the actual Orca pool
-    //
-    // The full workflow is:
-    // Step 1: create_collection() - creates collection and mint
-    // Step 2: mint_collection_tokens() - mints tokens (80% to holding account)
-    // Step 3: initialize_orca_pool() - creates the Orca Whirlpool
-    // Step 4: deposit_liquidity_to_orca() - deposits tokens + CAPGM into pool
-    //
-    // In production, this would involve:
-    // - Calculating the proper pool address (Whirlpool PDA)
-    // - Minting 80% to a temporary token account controlled by the collection PDA
-    // - Then using deposit_liquidity_to_orca() to move tokens to Orca vaults
-    // - Receiving a position NFT representing the liquidity
-    //
-    // For now, we mint directly to the provided Orca account for testing purposes.
-    // TODO: Implement full Orca DEX integration with proper pool creation and liquidity provision
-    
-    let orca_cpi_accounts = MintTo {
+    // 3. Mint 80% to liquidity reserve (staging account for Orca)
+    // These tokens sit here until deposit_liquidity_to_orca() is called
+    let reserve_cpi_accounts = MintTo {
         mint: ctx.accounts.mint.to_account_info(),
-        to: ctx.accounts.orca_liquidity_pool.to_account_info(),
+        to: ctx.accounts.liquidity_reserve.to_account_info(),
         authority: ctx.accounts.collection.to_account_info(),
     };
-    let orca_cpi_program = ctx.accounts.token_program.to_account_info();
-    let orca_cpi_ctx = CpiContext::new_with_signer(orca_cpi_program, orca_cpi_accounts, signer);
-    anchor_spl::token_interface::mint_to(orca_cpi_ctx, final_orca_amount)?;
+    let reserve_cpi_ctx = CpiContext::new_with_signer(
+        ctx.accounts.token_program.to_account_info(),
+        reserve_cpi_accounts,
+        signer
+    );
+    anchor_spl::token_interface::mint_to(reserve_cpi_ctx, final_reserve_amount)?;
 
     msg!(
-        "CollectionTokensMinted: Collection={} Creator={} CreatorAmount={} ClaimVaultAmount={} OrcaAmount={}",
+        "CollectionTokensMinted: Collection={} Mint={} TotalAmount={}",
         collection.collection_id,
-        creator.key(),
-        final_creator_amount,
-        final_claim_vault_amount,
-        final_orca_amount
+        mint.key(),
+        amount
     );
     msg!(
-        "NEXT STEPS: 1) Call initialize_orca_pool() if pool doesn't exist. 2) Call deposit_liquidity_to_orca() to move tokens to Orca and create liquidity position."
+        "Distribution: Creator={}(10%) ClaimVault={}(10%) LiquidityReserve={}(80%)",
+        creator_amount,
+        claim_vault_amount,
+        final_reserve_amount
+    );
+    msg!(
+        "NEXT STEPS: 1) initialize_orca_pool() to create Whirlpool. 2) deposit_liquidity_to_orca() to move tokens from reserve → Orca."
     );
 
     Ok(())
