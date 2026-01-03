@@ -84,6 +84,10 @@ pub struct ClaimPerformerEscrow<'info> {
 /// instruction. Otherwise, this escrow mechanism may be deprecated in favor of the
 /// CollectionStakingPool for creator revenue (via the 10% token allocation).
 pub fn claim_performer_escrow(ctx: Context<ClaimPerformerEscrow>) -> Result<()> {
+    // Extract account info and bump before mutable borrow
+    let performer_escrow_account_info = ctx.accounts.performer_escrow.to_account_info();
+    let performer_escrow_bump = ctx.accounts.performer_escrow.bump;
+    
     let performer_escrow = &mut ctx.accounts.performer_escrow;
 
     require!(
@@ -98,7 +102,7 @@ pub fn claim_performer_escrow(ctx: Context<ClaimPerformerEscrow>) -> Result<()> 
     let escrow_seeds = [
         SEED_PERFORMER_ESCROW,
         collection_key.as_ref(),
-        &[performer_escrow.bump],
+        &[performer_escrow_bump],
     ];
     let signer_seeds = &[&escrow_seeds[..]];
 
@@ -106,7 +110,7 @@ pub fn claim_performer_escrow(ctx: Context<ClaimPerformerEscrow>) -> Result<()> 
         from: ctx.accounts.escrow_token_account.to_account_info(),
         mint: ctx.accounts.collection_mint.to_account_info(),
         to: ctx.accounts.performer_token_account.to_account_info(),
-        authority: ctx.accounts.escrow_token_account.to_account_info(), // Escrow token account is owned by performer_escrow PDA
+        authority: performer_escrow_account_info, // PerformerEscrow PDA is the owner/authority
     };
     let cpi_ctx = CpiContext::new_with_signer(
         ctx.accounts.token_program.to_account_info(),

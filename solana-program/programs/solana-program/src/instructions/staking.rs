@@ -376,6 +376,10 @@ pub struct ClaimStakingRewards<'info> {
 
 /// Claim accumulated staking rewards
 pub fn claim_staking_rewards(ctx: Context<ClaimStakingRewards>) -> Result<()> {
+    // Extract account info and bump before borrows
+    let staking_pool_account_info = ctx.accounts.staking_pool.to_account_info();
+    let staking_pool_bump = ctx.accounts.staking_pool.bump;
+    
     let staking_pool = &ctx.accounts.staking_pool;
     let staker_position = &mut ctx.accounts.staker_position;
 
@@ -400,7 +404,7 @@ pub fn claim_staking_rewards(ctx: Context<ClaimStakingRewards>) -> Result<()> {
     let pool_seeds = [
         SEED_STAKING_POOL,
         collection_key.as_ref(),
-        &[staking_pool.bump],
+        &[staking_pool_bump],
     ];
     let signer_seeds = &[&pool_seeds[..]];
 
@@ -408,7 +412,7 @@ pub fn claim_staking_rewards(ctx: Context<ClaimStakingRewards>) -> Result<()> {
         from: ctx.accounts.pool_token_account.to_account_info(),
         mint: ctx.accounts.collection_mint.to_account_info(),
         to: ctx.accounts.staker_token_account.to_account_info(),
-        authority: ctx.accounts.pool_token_account.to_account_info(),
+        authority: staking_pool_account_info, // StakingPool PDA is the owner/authority
     };
     
     let cpi_ctx = CpiContext::new_with_signer(
@@ -478,6 +482,10 @@ pub fn unstake_collection_tokens(
     ctx: Context<UnstakeCollectionTokens>,
     amount: u64,
 ) -> Result<()> {
+    // Extract account info and bump before mutable borrows
+    let staking_pool_account_info = ctx.accounts.staking_pool.to_account_info();
+    let staking_pool_bump = ctx.accounts.staking_pool.bump;
+    
     let staking_pool = &mut ctx.accounts.staking_pool;
     let staker_position = &mut ctx.accounts.staker_position;
 
@@ -506,7 +514,7 @@ pub fn unstake_collection_tokens(
     let pool_seeds = [
         SEED_STAKING_POOL,
         collection_key.as_ref(),
-        &[staking_pool.bump],
+        &[staking_pool_bump],
     ];
     let signer_seeds = &[&pool_seeds[..]];
 
@@ -514,7 +522,7 @@ pub fn unstake_collection_tokens(
         from: ctx.accounts.pool_token_account.to_account_info(),
         mint: ctx.accounts.collection_mint.to_account_info(),
         to: ctx.accounts.staker_token_account.to_account_info(),
-        authority: ctx.accounts.pool_token_account.to_account_info(),
+        authority: staking_pool_account_info, // StakingPool PDA is the owner/authority
     };
     
     let cpi_ctx = CpiContext::new_with_signer(

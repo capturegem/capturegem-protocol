@@ -539,6 +539,15 @@ pub fn release_escrow<'info>(
         ProtocolError::PeerListTooLong
     );
 
+    // Get all keys and data before mutable borrows to avoid lifetime issues
+    let access_escrow_key = ctx.accounts.access_escrow.key();
+    let access_escrow_account_info = ctx.accounts.access_escrow.to_account_info();
+    let escrow_token_account_key = *ctx.accounts.escrow_token_account.key;
+    let token_program_key = *ctx.accounts.token_program.key;
+    let mint_account_info = ctx.accounts.collection_mint.to_account_info();
+    let mint_key = *mint_account_info.key;
+    let mint_decimals = ctx.accounts.collection_mint.decimals;
+
     let access_escrow = &mut ctx.accounts.access_escrow;
     let clock = &ctx.accounts.clock;
 
@@ -561,13 +570,6 @@ pub fn release_escrow<'info>(
     require!(total_weight > 0, ProtocolError::InvalidFeeConfig);
 
     let amount_locked = access_escrow.amount_locked;
-    
-    // Get all keys and data before the loop to avoid lifetime issues
-    let escrow_token_account_key = *ctx.accounts.escrow_token_account.key;
-    let token_program_key = *ctx.accounts.token_program.key;
-    let mint_account_info = ctx.accounts.collection_mint.to_account_info();
-    let mint_key = *mint_account_info.key;
-    let mint_decimals = ctx.accounts.collection_mint.decimals;
     let purchaser_key = access_escrow.purchaser;
     let collection_key = access_escrow.collection;
     let escrow_bump = access_escrow.bump;
@@ -690,7 +692,7 @@ pub fn release_escrow<'info>(
                 &escrow_token_account_key,
                 &mint_key,
                 peer_token_account_info.key,
-                &escrow_token_account_key, // Escrow account is both source and authority
+                &access_escrow_key, // AccessEscrow PDA is the authority (owner of token account)
                 &[],
                 peer_amount,
                 mint_decimals,
@@ -703,6 +705,7 @@ pub fn release_escrow<'info>(
                     ctx.accounts.escrow_token_account.to_account_info(),
                     ctx.accounts.collection_mint.to_account_info(),
                     peer_token_account_info.clone(),
+                    access_escrow_account_info.clone(), // Required: signer account must be in accounts array
                     ctx.accounts.token_program.to_account_info(),
                 ],
                 signer_seeds,
