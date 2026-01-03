@@ -1023,6 +1023,17 @@ pub struct RevealCid<'info> {
     )]
     pub access_escrow: Account<'info, AccessEscrow>,
 
+    /// PinnerState PDA - verifies that the pinner is registered and active for this collection
+    /// ⚠️ SECURITY: Prevents DoS attacks where malicious users reveal fake CIDs before legitimate pinners
+    #[account(
+        seeds = [SEED_PINNER_BOND, pinner.key().as_ref(), collection.key().as_ref()],
+        bump,
+        constraint = pinner_state.is_active @ ProtocolError::Unauthorized,
+        constraint = pinner_state.collection == collection.key() @ ProtocolError::Unauthorized,
+        constraint = pinner_state.pinner == pinner.key() @ ProtocolError::Unauthorized
+    )]
+    pub pinner_state: Account<'info, PinnerState>,
+
     /// CID Reveal PDA - will be created
     #[account(
         init,

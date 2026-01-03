@@ -135,11 +135,14 @@ pub struct ModTicket {
     pub resolved: bool,
     pub verdict: bool,          // true = approved (banned), false = rejected (kept)
     pub resolver: Option<Pubkey>, // Moderator who resolved it
+    pub created_at: i64,        // Unix timestamp when the ticket was created
     pub bump: u8,
 }
 
 impl ModTicket {
-    pub const MAX_SIZE: usize = 8 + 32 + MAX_ID_LEN + 1 + MAX_REASON_LEN + 1 + 1 + 33 + 1;
+    // 8 (discriminator) + 32 (reporter) + MAX_ID_LEN (target_id) + 1 (ticket_type) + MAX_REASON_LEN (reason)
+    // + 1 (resolved) + 1 (verdict) + 33 (resolver Option<Pubkey>) + 8 (created_at) + 1 (bump)
+    pub const MAX_SIZE: usize = 8 + 32 + MAX_ID_LEN + 1 + MAX_REASON_LEN + 1 + 1 + 33 + 8 + 1;
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]

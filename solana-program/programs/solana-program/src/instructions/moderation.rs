@@ -30,7 +30,13 @@ pub struct CreateTicket<'info> {
     )]
     pub ticket: Account<'info, ModTicket>,
     
+    /// Optional: Collection account (required if ticket_type is CopyrightClaim)
+    /// Used to verify the claim deadline hasn't passed at ticket creation time
+    #[account(mut)]
+    pub collection: Option<Account<'info, CollectionState>>,
+    
     pub system_program: Program<'info, System>,
+    pub clock: Sysvar<'info, Clock>,
 }
 
 #[derive(Accounts)]
@@ -119,7 +125,23 @@ pub fn create_ticket(
     require!(target_id.len() <= crate::state::MAX_ID_LEN, ProtocolError::StringTooLong);
     require!(reason.len() <= crate::state::MAX_REASON_LEN, ProtocolError::StringTooLong);
     
+    // ⚠️ SECURITY: For CopyrightClaim tickets, verify the claim deadline hasn't passed
+    // This prevents creating tickets after the deadline, but once created, tickets remain
+    // resolvable even if the deadline passes during moderator deliberation.
+    if ticket_type == TicketType::CopyrightClaim {
+        let collection = ctx.accounts.collection.as_ref()
+            .ok_or(ProtocolError::Unauthorized)?;
+        let clock = &ctx.accounts.clock;
+        
+        require!(
+            clock.unix_timestamp < collection.claim_deadline,
+            ProtocolError::Unauthorized
+        );
+    }
+    
     let ticket = &mut ctx.accounts.ticket;
+    let clock = &ctx.accounts.clock;
+    
     ticket.reporter = ctx.accounts.reporter.key();
     ticket.target_id = target_id;
     ticket.ticket_type = ticket_type;
@@ -127,6 +149,7 @@ pub fn create_ticket(
     ticket.resolved = false;
     ticket.verdict = false;
     ticket.resolver = None;
+    ticket.created_at = clock.unix_timestamp;
     ticket.bump = ctx.bumps.ticket;
     Ok(())
 }
@@ -167,7 +190,6 @@ pub fn resolve_ticket(ctx: Context<ResolveTicket>, verdict: bool) -> Result<()> 
 pub fn resolve_copyright_claim(ctx: Context<ResolveCopyrightClaim>, verdict: bool) -> Result<()> {
     let ticket = &mut ctx.accounts.ticket;
     let collection = &mut ctx.accounts.collection;
-    let clock = &ctx.accounts.clock;
 
     // Verify this is a copyright claim ticket
     require!(
@@ -179,11 +201,11 @@ pub fn resolve_copyright_claim(ctx: Context<ResolveCopyrightClaim>, verdict: boo
         return err!(ProtocolError::TicketAlreadyResolved);
     }
 
-    // Verify claim deadline hasn't passed
-    require!(
-        clock.unix_timestamp < collection.claim_deadline,
-        ProtocolError::Unauthorized
-    );
+    // ⚠️ SECURITY: Deadline check removed from resolution.
+    // The deadline is now enforced at ticket creation time (in create_ticket).
+    // Once a ticket is created before the deadline, it remains resolvable even if
+    // the deadline passes during moderator deliberation. This prevents legitimate
+    // claims from being invalidated due to processing delays.
 
     ticket.resolved = true;
     ticket.verdict = verdict; // true = approved (claimant gets vault), false = rejected
