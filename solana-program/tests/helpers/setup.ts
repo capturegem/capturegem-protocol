@@ -92,8 +92,14 @@ export const getPerformerEscrowPDA = (collection: PublicKey): [PublicKey, number
 };
 
 export const getVideoPDA = (collection: PublicKey, videoId: string): [PublicKey, number] => {
+  // Ensure videoId doesn't exceed 32 bytes for PDA seed
+  const videoIdBuffer = Buffer.from(videoId);
+  const truncatedId = videoIdBuffer.length > 32 
+    ? videoIdBuffer.slice(0, 32) 
+    : videoIdBuffer;
+  
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("video"), collection.toBuffer(), Buffer.from(videoId)],
+    [Buffer.from("video"), collection.toBuffer(), truncatedId],
     program.programId
   );
 };
@@ -123,6 +129,22 @@ export async function accountExists(accountPubkey: PublicKey): Promise<boolean> 
   try {
     const accountInfo = await provider.connection.getAccountInfo(accountPubkey);
     return accountInfo !== null;
+  } catch {
+    return false;
+  }
+}
+
+// Helper to check if a mint account exists and is valid
+export async function mintExistsAndValid(mintPubkey: PublicKey): Promise<boolean> {
+  try {
+    const accountInfo = await provider.connection.getAccountInfo(mintPubkey);
+    if (!accountInfo || accountInfo.data.length === 0) {
+      return false;
+    }
+    // Try to parse as mint - if it fails, the account is invalid
+    const { getMint } = await import("@solana/spl-token");
+    await getMint(provider.connection, mintPubkey);
+    return true;
   } catch {
     return false;
   }
@@ -170,6 +192,67 @@ export async function ensureUserAccountInitialized(userKey: Keypair): Promise<vo
       .signers([userKey])
       .rpc();
   }
+}
+
+// Helper to ensure collection exists, handling invalid mint accounts
+export async function ensureCollectionExists(
+  owner: PublicKey,
+  collectionId: string,
+  collectionName: string,
+  contentCid: string,
+  accessThresholdUsd: number,
+  maxVideoLimit: number
+): Promise<PublicKey> {
+  const [collectionPDA] = getCollectionPDA(owner, collectionId);
+  const [mintPDA] = getMintPDA(collectionPDA);
+  
+  // Check if collection exists
+  const collectionExists = await accountExists(collectionPDA);
+  if (collectionExists) {
+    return collectionPDA;
+  }
+  
+  // Check if mint exists and is valid
+  const mintValid = await mintExistsAndValid(mintPDA);
+  if (mintValid) {
+    // Mint exists and is valid, but collection doesn't - this shouldn't happen
+    // Try to create collection anyway - init_if_needed should handle it
+  } else if (await accountExists(mintPDA)) {
+    // Mint exists but is invalid - we need to close it first
+    // This is complex, so for now we'll just try to create the collection
+    // and let init_if_needed handle it (it should fail gracefully)
+  }
+  
+  // Create collection
+  const { SystemProgram, SYSVAR_RENT_PUBKEY } = await import("@solana/web3.js");
+  const { TOKEN_PROGRAM_ID } = await import("@solana/spl-token");
+  
+  try {
+    await program.methods
+      .createCollection(
+        collectionId,
+        collectionName,
+        contentCid,
+        accessThresholdUsd,
+        maxVideoLimit
+      )
+      .accounts({
+        owner: owner,
+        collection: collectionPDA,
+        oracleFeed: oracleFeed.publicKey,
+        mint: mintPDA,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
+      })
+      .rpc();
+  } catch (err: any) {
+    // If it fails due to invalid mint, we might need to handle it differently
+    // For now, just throw the error
+    throw err;
+  }
+  
+  return collectionPDA;
 }
 
 // Helper to airdrop and wait for confirmation

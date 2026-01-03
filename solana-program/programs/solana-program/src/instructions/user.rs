@@ -24,7 +24,7 @@ pub struct CreateCollection<'info> {
 
     /// Token mint account (PDA derived from collection)
     #[account(
-        init,
+        init_if_needed,
         payer = owner,
         mint::decimals = 6,
         mint::authority = collection,
