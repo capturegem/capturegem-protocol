@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import {
   program,
   performer,
@@ -12,8 +12,8 @@ import {
 import { COLLECTION_ID } from "./helpers/constants";
 
 describe("Performer Escrow", () => {
-  let collectionPDA: any;
-  let performerEscrowPDA: any;
+  let collectionPDA: PublicKey;
+  let performerEscrowPDA: PublicKey;
 
   before(async () => {
     await setupAccounts();
@@ -43,7 +43,7 @@ describe("Performer Escrow", () => {
           ACCESS_THRESHOLD_USD,
           MAX_VIDEO_LIMIT
         )
-        .accounts({
+        .accountsPartial({
           owner: user.publicKey,
           collection: collectionPDA,
           oracleFeed: oracleFeed.publicKey,
@@ -65,7 +65,7 @@ describe("Performer Escrow", () => {
       // Not initialized, initialize it
       await program.methods
         .initializePerformerEscrow(performer.publicKey)
-        .accounts({
+        .accountsPartial({
           authority: user.publicKey,
           collection: collectionPDA,
           performerEscrow: performerEscrowPDA,
@@ -82,7 +82,7 @@ describe("Performer Escrow", () => {
     try {
       await program.methods
         .claimPerformerEscrow()
-        .accounts({
+        .accountsPartial({
           performer: performer.publicKey,
           collection: collectionPDA,
           performerEscrow: performerEscrowPDA,
@@ -91,7 +91,7 @@ describe("Performer Escrow", () => {
         .signers([performer])
         .rpc();
       expect.fail("Should have failed");
-    } catch (err: any) {
+    } catch (err: unknown) {
       const errStr = err.toString();
       // Account might not be initialized if instruction doesn't exist in deployed program
       expect(errStr.includes("InsufficientFunds") || errStr.includes("AccountNotInitialized")).to.be.true;
@@ -108,7 +108,7 @@ describe("Performer Escrow", () => {
     try {
       await program.methods
         .claimPerformerEscrow()
-        .accounts({
+        .accountsPartial({
           performer: wrongPerformer.publicKey,
           collection: collectionPDA,
           performerEscrow: performerEscrowPDA,
@@ -117,7 +117,7 @@ describe("Performer Escrow", () => {
         .signers([wrongPerformer])
         .rpc();
       expect.fail("Should have failed - wrong performer");
-    } catch (err: any) {
+    } catch (err: unknown) {
       const errStr = err.toString();
       // Account might not be initialized, or performer_wallet might not match
       expect(errStr.includes("Unauthorized") || errStr.includes("AccountNotInitialized") || errStr.includes("PerformerEscrowNotFound")).to.be.true;

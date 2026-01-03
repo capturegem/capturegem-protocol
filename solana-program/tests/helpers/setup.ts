@@ -161,7 +161,7 @@ export async function ensureProtocolInitialized(): Promise<void> {
     
     await program.methods
       .initializeProtocol(INDEXER_URL, REGISTRY_URL, MOD_STAKE_MIN, FEE_BASIS_POINTS)
-      .accounts({
+      .accountsPartial({
         admin: admin.publicKey,
         globalState: globalStatePDA,
         treasury: treasury.publicKey,
@@ -184,7 +184,7 @@ export async function ensureUserAccountInitialized(userKey: Keypair): Promise<vo
     
     await program.methods
       .initializeUserAccount(IPNS_KEY)
-      .accounts({
+      .accountsPartial({
         authority: userKey.publicKey,
         userAccount: userAccountPDA,
         systemProgram: SystemProgram.programId,
@@ -200,7 +200,7 @@ export async function ensureCollectionExists(
   collectionId: string,
   collectionName: string,
   contentCid: string,
-  accessThresholdUsd: number,
+  accessThresholdUsd: anchor.BN,
   maxVideoLimit: number
 ): Promise<PublicKey> {
   const [collectionPDA] = getCollectionPDA(owner, collectionId);
@@ -236,7 +236,7 @@ export async function ensureCollectionExists(
         accessThresholdUsd,
         maxVideoLimit
       )
-      .accounts({
+      .accountsPartial({
         owner: owner,
         collection: collectionPDA,
         oracleFeed: oracleFeed.publicKey,
@@ -267,7 +267,7 @@ export async function airdropAndConfirm(publicKey: PublicKey, amount: number = 2
   let sig: string;
   try {
     sig = await provider.connection.requestAirdrop(publicKey, amount);
-  } catch (e: any) {
+  } catch (e: unknown) {
     // If airdrop request fails, wait and retry
     await new Promise(resolve => setTimeout(resolve, 1000));
     sig = await provider.connection.requestAirdrop(publicKey, amount);

@@ -45,7 +45,7 @@ describe("Treasury - Fee Harvesting", () => {
           ACCESS_THRESHOLD_USD,
           MAX_VIDEO_LIMIT
         )
-        .accounts({
+        .accountsPartial({
           owner: user.publicKey,
           collection: collectionPDA,
           oracleFeed: oracleFeed.publicKey,
@@ -72,7 +72,7 @@ describe("Treasury - Fee Harvesting", () => {
         const { performer } = await import("./helpers/setup");
         await program.methods
           .initializePerformerEscrow(performer.publicKey)
-          .accounts({
+          .accountsPartial({
             authority: user.publicKey,
             collection: collectionPDA,
             performerEscrow: performerEscrowPDA,
@@ -98,7 +98,7 @@ describe("Treasury - Fee Harvesting", () => {
     // Note: In real implementation, you'd need to set up actual token accounts
     const tx = await program.methods
       .harvestFees()
-      .accounts({
+      .accountsPartial({
         authority: user.publicKey,
         collection: collectionPDA,
         mint: mint.publicKey,

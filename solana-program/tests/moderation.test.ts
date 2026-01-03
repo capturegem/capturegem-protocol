@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { Keypair, SystemProgram } from "@solana/web3.js";
+import { Keypair, SystemProgram, PublicKey } from "@solana/web3.js";
 import {
   program,
   user,
@@ -14,8 +14,8 @@ import {
 import { TARGET_ID, REASON } from "./helpers/constants";
 
 describe("Moderation", () => {
-  let globalStatePDA: any;
-  let moderatorStakePDA: any;
+  let globalStatePDA: PublicKey;
+  let moderatorStakePDA: PublicKey;
 
   before(async () => {
     await setupAccounts();
@@ -39,7 +39,7 @@ describe("Moderation", () => {
       
       await program.methods
         .stakeModerator(MOD_STAKE_MIN)
-        .accounts({
+        .accountsPartial({
           moderator: moderator.publicKey,
           globalState: globalStatePDA,
           moderatorTokenAccount: moderatorTokenAccount,
@@ -76,7 +76,7 @@ describe("Moderation", () => {
           { contentReport: {} },
           REASON
         )
-        .accounts({
+        .accountsPartial({
           reporter: user.publicKey,
           ticket: ticketPDA,
           systemProgram: SystemProgram.programId,
@@ -112,7 +112,7 @@ describe("Moderation", () => {
           { duplicateReport: {} },
           REASON
         )
-        .accounts({
+        .accountsPartial({
           reporter: user.publicKey,
           ticket: ticketPDA,
           systemProgram: SystemProgram.programId,
@@ -145,7 +145,7 @@ describe("Moderation", () => {
           { performerClaim: {} },
           REASON
         )
-        .accounts({
+        .accountsPartial({
           reporter: performer.publicKey,
           ticket: ticketPDA,
           systemProgram: SystemProgram.programId,
@@ -180,7 +180,7 @@ describe("Moderation", () => {
             { contentReport: {} },
             REASON
           )
-          .accounts({
+          .accountsPartial({
             reporter: testUser.publicKey,
             ticket: uniqueTicketPDA,
             systemProgram: SystemProgram.programId,
@@ -195,7 +195,7 @@ describe("Moderation", () => {
             { contentReport: {} },
             REASON
           )
-          .accounts({
+          .accountsPartial({
             reporter: testUser.publicKey,
             ticket: validTicketPDA,
             systemProgram: SystemProgram.programId,
@@ -221,7 +221,7 @@ describe("Moderation", () => {
             { contentReport: {} },
             longReason
           )
-          .accounts({
+          .accountsPartial({
             reporter: user.publicKey,
             ticket: ticketPDA,
             systemProgram: SystemProgram.programId,
@@ -229,14 +229,14 @@ describe("Moderation", () => {
           .signers([user])
           .rpc();
         expect.fail("Should have failed");
-      } catch (err: any) {
+      } catch (err: unknown) {
         expect(err.toString()).to.include("StringTooLong");
       }
     });
   });
 
   describe("Resolve Ticket", () => {
-    let ticketPDA: any;
+    let ticketPDA: PublicKey;
 
     before(async () => {
       [ticketPDA] = getModTicketPDA(TARGET_ID);
@@ -253,7 +253,7 @@ describe("Moderation", () => {
           const [newTicketPDA] = getModTicketPDA(newTargetId);
           await program.methods
             .createTicket(newTargetId, { contentReport: {} }, REASON)
-            .accounts({
+            .accountsPartial({
               reporter: user.publicKey,
               ticket: newTicketPDA,
               systemProgram: SystemProgram.programId,
@@ -264,7 +264,7 @@ describe("Moderation", () => {
           // Resolve the new ticket
           await program.methods
             .resolveTicket(true)
-            .accounts({
+            .accountsPartial({
               moderator: moderator.publicKey,
               globalState: globalStatePDA,
               moderatorStake: moderatorStakePDA,
@@ -283,7 +283,7 @@ describe("Moderation", () => {
         // Ticket doesn't exist, create it
         await program.methods
           .createTicket(TARGET_ID, { contentReport: {} }, REASON)
-          .accounts({
+          .accountsPartial({
             reporter: user.publicKey,
             ticket: ticketPDA,
             systemProgram: SystemProgram.programId,
@@ -296,7 +296,7 @@ describe("Moderation", () => {
         // Ticket exists and is not resolved, resolve it
         const tx = await program.methods
           .resolveTicket(true)
-          .accounts({
+          .accountsPartial({
             moderator: moderator.publicKey,
             globalState: globalStatePDA,
             moderatorStake: moderatorStakePDA,
@@ -328,7 +328,7 @@ describe("Moderation", () => {
           const [newNewTicketPDA] = getModTicketPDA(newUniqueId);
           await program.methods
             .createTicket(newUniqueId, { contentReport: {} }, REASON)
-            .accounts({
+            .accountsPartial({
               reporter: user.publicKey,
               ticket: newNewTicketPDA,
               systemProgram: SystemProgram.programId,
@@ -338,7 +338,7 @@ describe("Moderation", () => {
           
           await program.methods
             .resolveTicket(false)
-            .accounts({
+            .accountsPartial({
               moderator: moderator.publicKey,
               globalState: globalStatePDA,
               moderatorStake: moderatorStakePDA,
@@ -360,7 +360,7 @@ describe("Moderation", () => {
             { contentReport: {} },
             REASON
           )
-          .accounts({
+          .accountsPartial({
             reporter: user.publicKey,
             ticket: newTicketPDA,
             systemProgram: SystemProgram.programId,
@@ -372,7 +372,7 @@ describe("Moderation", () => {
       // Resolve with false
       await program.methods
         .resolveTicket(false)
-        .accounts({
+        .accountsPartial({
           moderator: moderator.publicKey,
           globalState: globalStatePDA,
           moderatorStake: moderatorStakePDA,
@@ -395,7 +395,7 @@ describe("Moderation", () => {
           // Resolve it first
           await program.methods
             .resolveTicket(true)
-            .accounts({
+            .accountsPartial({
               moderator: moderator.publicKey,
               globalState: globalStatePDA,
               moderatorStake: moderatorStakePDA,
@@ -410,7 +410,7 @@ describe("Moderation", () => {
         const [newTicketPDA] = getModTicketPDA(newTargetId);
         await program.methods
           .createTicket(newTargetId, { contentReport: {} }, REASON)
-          .accounts({
+          .accountsPartial({
             reporter: user.publicKey,
             ticket: newTicketPDA,
             systemProgram: SystemProgram.programId,
@@ -420,7 +420,7 @@ describe("Moderation", () => {
         
         await program.methods
           .resolveTicket(true)
-          .accounts({
+          .accountsPartial({
             moderator: moderator.publicKey,
             globalState: globalStatePDA,
             moderatorStake: moderatorStakePDA,
@@ -436,7 +436,7 @@ describe("Moderation", () => {
       try {
         await program.methods
           .resolveTicket(false)
-          .accounts({
+          .accountsPartial({
             moderator: moderator.publicKey,
             globalState: globalStatePDA,
             moderatorStake: moderatorStakePDA,
@@ -445,7 +445,7 @@ describe("Moderation", () => {
           .signers([moderator])
           .rpc();
         expect.fail("Should have failed");
-      } catch (err: any) {
+      } catch (err: unknown) {
         // Check for either TicketAlreadyResolved or the actual error
         const errStr = err.toString();
         expect(errStr.includes("TicketAlreadyResolved") || errStr.includes("Constraint")).to.be.true;
@@ -472,7 +472,7 @@ describe("Moderation", () => {
             { contentReport: {} },
             REASON
           )
-          .accounts({
+          .accountsPartial({
             reporter: user.publicKey,
             ticket: newTicketPDA,
             systemProgram: SystemProgram.programId,
@@ -485,7 +485,7 @@ describe("Moderation", () => {
       try {
         await program.methods
           .resolveTicket(true)
-          .accounts({
+          .accountsPartial({
             moderator: unstakedModerator.publicKey,
             globalState: globalStatePDA,
             moderatorStake: unstakedModeratorStakePDA,
@@ -494,7 +494,7 @@ describe("Moderation", () => {
           .signers([unstakedModerator])
           .rpc();
         expect.fail("Should have failed");
-      } catch (err: any) {
+      } catch (err: unknown) {
         const errStr = err.toString();
         // Could be InsufficientModeratorStake or AccountNotInitialized (if stake account doesn't exist)
         expect(errStr.includes("InsufficientModeratorStake") || errStr.includes("AccountNotInitialized") || errStr.includes("Constraint")).to.be.true;

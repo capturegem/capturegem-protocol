@@ -48,5 +48,6 @@ Thumbs.db
 .cursorrules
 .cursorignore
 .surfpool/logs/*
+solana-program/.surfpool/logs
 # Temporary files
 temp-files/

@@ -70,7 +70,7 @@ describe("Protocol Initialization", () => {
           MOD_STAKE_MIN,
           FEE_BASIS_POINTS
         )
-        .accounts({
+        .accountsPartial({
           admin: admin.publicKey,
           globalState: globalStatePDA,
           treasury: treasury.publicKey,
@@ -80,7 +80,7 @@ describe("Protocol Initialization", () => {
         .signers([admin])
         .rpc();
       expect.fail("Should have failed");
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Check for either StringTooLong error or already initialized error
       const errStr = err.toString();
       expect(errStr.includes("StringTooLong") || errStr.includes("already in use")).to.be.true;
@@ -99,7 +99,7 @@ describe("Protocol Initialization", () => {
           MOD_STAKE_MIN,
           FEE_BASIS_POINTS
         )
-        .accounts({
+        .accountsPartial({
           admin: admin.publicKey,
           globalState: globalStatePDA,
           treasury: treasury.publicKey,
@@ -109,7 +109,7 @@ describe("Protocol Initialization", () => {
         .signers([admin])
         .rpc();
       expect.fail("Should have failed");
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Check for either StringTooLong error or already initialized error
       const errStr = err.toString();
       expect(errStr.includes("StringTooLong") || errStr.includes("already in use")).to.be.true;
@@ -127,7 +127,7 @@ describe("Protocol Initialization", () => {
           MOD_STAKE_MIN,
           FEE_BASIS_POINTS
         )
-        .accounts({
+        .accountsPartial({
           admin: admin.publicKey,
           globalState: globalStatePDA,
           treasury: treasury.publicKey,
@@ -137,7 +137,7 @@ describe("Protocol Initialization", () => {
         .signers([admin])
         .rpc();
       expect.fail("Should have failed - already initialized");
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Should fail because account already exists
       expect(err.toString()).to.include("already in use");
     }

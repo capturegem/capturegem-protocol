@@ -53,7 +53,7 @@ describe("Integration Tests", () => {
       } catch {
         await program.methods
           .initializeProtocol(INDEXER_URL, REGISTRY_URL, MOD_STAKE_MIN, FEE_BASIS_POINTS)
-          .accounts({
+          .accountsPartial({
             admin: admin.publicKey,
             globalState: globalStatePDA,
             treasury: treasury.publicKey,
@@ -71,7 +71,7 @@ describe("Integration Tests", () => {
       } catch {
         await program.methods
           .initializeUserAccount(IPNS_KEY)
-          .accounts({
+          .accountsPartial({
             authority: user.publicKey,
             userAccount: userAccountPDA,
             systemProgram: SystemProgram.programId,
@@ -93,7 +93,7 @@ describe("Integration Tests", () => {
           ACCESS_THRESHOLD_USD,
           MAX_VIDEO_LIMIT
         )
-        .accounts({
+        .accountsPartial({
           owner: user.publicKey,
           collection: collectionPDA,
           oracleFeed: oracleFeed.publicKey,
@@ -109,7 +109,7 @@ describe("Integration Tests", () => {
       const [videoPDA] = getVideoPDA(collectionPDA, VIDEO_ID);
       await program.methods
         .uploadVideo(VIDEO_ID, ROOT_CID)
-        .accounts({
+        .accountsPartial({
           owner: user.publicKey,
           collection: collectionPDA,
           video: videoPDA,
@@ -148,7 +148,7 @@ describe("Integration Tests", () => {
             ACCESS_THRESHOLD_USD,
             MAX_VIDEO_LIMIT
           )
-          .accounts({
+          .accountsPartial({
             owner: user.publicKey,
             collection: collectionPDA,
             oracleFeed: oracleFeed.publicKey,
@@ -165,7 +165,7 @@ describe("Integration Tests", () => {
       // 1. Register pinner
       await program.methods
         .registerCollectionHost()
-        .accounts({
+        .accountsPartial({
           pinner: pinner.publicKey,
           collection: collectionPDA,
           pinnerState: pinnerStatePDA,
@@ -192,14 +192,14 @@ describe("Integration Tests", () => {
       try {
         await program.methods
           .claimRewards()
-          .accounts({
+          .accountsPartial({
             pinner: pinner.publicKey,
             collection: collectionPDA,
             pinnerState: pinnerStatePDA,
           })
           .signers([pinner])
           .rpc();
-      } catch (err: any) {
+      } catch (err: unknown) {
         // Expected if no rewards in pool
         expect(err.toString()).to.include("InsufficientFunds");
       }
@@ -224,7 +224,7 @@ describe("Integration Tests", () => {
       } catch {
         await program.methods
           .createTicket(uniqueTargetId, { contentReport: {} }, REASON)
-          .accounts({
+          .accountsPartial({
             reporter: user.publicKey,
             ticket: ticketPDA,
             systemProgram: SystemProgram.programId,
@@ -240,7 +240,7 @@ describe("Integration Tests", () => {
         const moderatorTokenAccount = Keypair.generate().publicKey;
         await program.methods
           .stakeModerator(MOD_STAKE_MIN)
-          .accounts({
+          .accountsPartial({
             moderator: moderator.publicKey,
             globalState: globalStatePDA,
             moderatorTokenAccount: moderatorTokenAccount,
@@ -255,7 +255,7 @@ describe("Integration Tests", () => {
       // 3. Resolve ticket
       await program.methods
         .resolveTicket(true)
-        .accounts({
+        .accountsPartial({
           moderator: moderator.publicKey,
           globalState: globalStatePDA,
           moderatorStake: moderatorStakePDA,
@@ -293,7 +293,7 @@ describe("Integration Tests", () => {
           ACCESS_THRESHOLD_USD,
           MAX_VIDEO_LIMIT
         )
-        .accounts({
+        .accountsPartial({
           owner: user.publicKey,
           collection: collection1PDA,
           oracleFeed: oracleFeed.publicKey,
@@ -312,7 +312,7 @@ describe("Integration Tests", () => {
           ACCESS_THRESHOLD_USD,
           MAX_VIDEO_LIMIT
         )
-        .accounts({
+        .accountsPartial({
           owner: user.publicKey,
           collection: collection2PDA,
           oracleFeed: oracleFeed.publicKey,
@@ -350,7 +350,7 @@ describe("Integration Tests", () => {
             ACCESS_THRESHOLD_USD,
             MAX_VIDEO_LIMIT
           )
-          .accounts({
+          .accountsPartial({
             owner: user.publicKey,
             collection: collectionPDA,
             oracleFeed: oracleFeed.publicKey,
@@ -377,7 +377,7 @@ describe("Integration Tests", () => {
         // Not registered, proceed with registration
         await program.methods
           .registerCollectionHost()
-          .accounts({
+          .accountsPartial({
             pinner: pinner.publicKey,
             collection: collectionPDA,
             pinnerState: pinner1StatePDA,
@@ -390,7 +390,7 @@ describe("Integration Tests", () => {
       // Register second pinner
       await program.methods
         .registerCollectionHost()
-        .accounts({
+        .accountsPartial({
           pinner: pinner2.publicKey,
           collection: collectionPDA,
           pinnerState: pinner2StatePDA,

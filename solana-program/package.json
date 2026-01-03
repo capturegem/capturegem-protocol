@@ -3,7 +3,10 @@
   "scripts": {
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
-    "test": "./run-tests.sh"
+    "test": "anchor test --skip-local-validator",
+    "test:surfpool": "anchor test --skip-local-validator",
+    "test:anchor": "anchor test",
+    "surfpool:start": "surfpool start"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

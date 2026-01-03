@@ -51,7 +51,7 @@ describe("Video Upload", () => {
           ACCESS_THRESHOLD_USD,
           MAX_VIDEO_LIMIT
         )
-        .accounts({
+        .accountsPartial({
           owner: user.publicKey,
           collection: collectionPDA,
           oracleFeed: oracleFeed.publicKey,
@@ -70,7 +70,7 @@ describe("Video Upload", () => {
 
     const tx = await program.methods
       .uploadVideo(VIDEO_ID, ROOT_CID)
-      .accounts({
+      .accountsPartial({
         owner: user.publicKey,
         collection: collectionPDA,
         video: videoPDA,
@@ -96,7 +96,7 @@ describe("Video Upload", () => {
       const [videoPDA] = getVideoPDA(collectionPDA, `video-${i}`);
       await program.methods
         .uploadVideo(`video-${i}`, ROOT_CID)
-        .accounts({
+        .accountsPartial({
           owner: user.publicKey,
           collection: collectionPDA,
           video: videoPDA,
@@ -113,7 +113,7 @@ describe("Video Upload", () => {
     try {
       await program.methods
         .uploadVideo("video-over-limit", ROOT_CID)
-        .accounts({
+        .accountsPartial({
           owner: user.publicKey,
           collection: collectionPDA,
           video: videoPDA,
@@ -124,7 +124,7 @@ describe("Video Upload", () => {
         .signers([user])
         .rpc();
       expect.fail("Should have failed");
-    } catch (err: any) {
+    } catch (err: unknown) {
       expect(err.toString()).to.include("VideoLimitExceeded");
     }
   });
@@ -136,7 +136,7 @@ describe("Video Upload", () => {
     try {
       await program.methods
         .uploadVideo(longVideoId, ROOT_CID)
-        .accounts({
+        .accountsPartial({
           owner: user.publicKey,
           collection: collectionPDA,
           video: videoPDA,
@@ -147,7 +147,7 @@ describe("Video Upload", () => {
         .signers([user])
         .rpc();
       expect.fail("Should have failed");
-    } catch (err: any) {
+    } catch (err: unknown) {
       const errStr = err.toString();
       // The error might be "StringTooLong" or "Max seed length" if PDA derivation fails
       const hasExpectedError = errStr.includes("StringTooLong") || 
@@ -169,7 +169,7 @@ describe("Video Upload", () => {
     try {
       await program.methods
         .uploadVideo("video-invalid-cid", longCid)
-        .accounts({
+        .accountsPartial({
           owner: user.publicKey,
           collection: collectionPDA,
           video: videoPDA,
@@ -180,7 +180,7 @@ describe("Video Upload", () => {
         .signers([user])
         .rpc();
       expect.fail("Should have failed");
-    } catch (err: any) {
+    } catch (err: unknown) {
       expect(err.toString()).to.include("StringTooLong");
     }
   });
@@ -203,7 +203,7 @@ describe("Video Upload", () => {
           ACCESS_THRESHOLD_USD,
           MAX_VIDEO_LIMIT
         )
-        .accounts({
+        .accountsPartial({
           owner: user.publicKey,
           collection: freshCollectionPDA,
           oracleFeed: oracleFeed.publicKey,
@@ -220,7 +220,7 @@ describe("Video Upload", () => {
 
     const tx = await program.methods
       .uploadVideo("video-with-performer", ROOT_CID)
-      .accounts({
+      .accountsPartial({
         owner: user.publicKey,
         collection: freshCollectionPDA,
         video: videoPDA,

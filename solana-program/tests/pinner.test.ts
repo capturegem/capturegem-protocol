@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { Keypair, SystemProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
+import { Keypair, SystemProgram, SYSVAR_RENT_PUBKEY, PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import {
   program,
@@ -16,8 +16,8 @@ import {
 import { COLLECTION_ID, COLLECTION_NAME, CONTENT_CID, ACCESS_THRESHOLD_USD, MAX_VIDEO_LIMIT } from "./helpers/constants";
 
 describe("Pinner Operations", () => {
-  let collectionPDA: any;
-  let pinnerStatePDA: any;
+  let collectionPDA: PublicKey;
+  let pinnerStatePDA: PublicKey;
 
   before(async () => {
     await setupAccounts();
@@ -44,7 +44,7 @@ describe("Pinner Operations", () => {
           ACCESS_THRESHOLD_USD,
           MAX_VIDEO_LIMIT
         )
-        .accounts({
+        .accountsPartial({
           owner: user.publicKey,
           collection: collectionPDA,
           oracleFeed: oracleFeed.publicKey,
@@ -76,7 +76,7 @@ describe("Pinner Operations", () => {
       
       const tx = await program.methods
         .registerCollectionHost()
-        .accounts({
+        .accountsPartial({
           pinner: pinner.publicKey,
           collection: collectionPDA,
           pinnerState: pinnerStatePDA,
@@ -100,7 +100,7 @@ describe("Pinner Operations", () => {
       try {
         await program.methods
           .registerCollectionHost()
-          .accounts({
+          .accountsPartial({
             pinner: pinner.publicKey,
             collection: collectionPDA,
             pinnerState: pinnerStatePDA,
@@ -109,7 +109,7 @@ describe("Pinner Operations", () => {
           .signers([pinner])
           .rpc();
         expect.fail("Should have failed - already registered");
-      } catch (err: any) {
+      } catch (err: unknown) {
         expect(err.toString()).to.include("already in use");
       }
     });
@@ -169,7 +169,7 @@ describe("Pinner Operations", () => {
       try {
         await program.methods
           .claimRewards()
-          .accounts({
+          .accountsPartial({
             pinner: pinner.publicKey,
             collection: collectionPDA,
             pinnerState: pinnerStatePDA,
@@ -177,7 +177,7 @@ describe("Pinner Operations", () => {
           .signers([pinner])
           .rpc();
         expect.fail("Should have failed");
-      } catch (err: any) {
+      } catch (err: unknown) {
         // Expected if no rewards in pool
         expect(err.toString()).to.include("InsufficientFunds");
       }
@@ -202,7 +202,7 @@ describe("Pinner Operations", () => {
       try {
         await program.methods
           .claimRewards()
-          .accounts({
+          .accountsPartial({
             pinner: pinner.publicKey,
             collection: collectionPDA,
             pinnerState: pinnerStatePDA,
@@ -210,7 +210,7 @@ describe("Pinner Operations", () => {
           .signers([pinner])
           .rpc();
         expect.fail("Should have failed - not active");
-      } catch (err: any) {
+      } catch (err: unknown) {
         expect(err.toString()).to.include("AuditWindowExpired");
       }
     });

@@ -44,7 +44,7 @@ describe("Moderator Staking", () => {
 
       const tx = await program.methods
         .stakeModerator(stakeAmount)
-        .accounts({
+        .accountsPartial({
           moderator: moderator.publicKey,
           globalState: globalStatePDA,
           moderatorTokenAccount: moderatorTokenAccount,
@@ -74,7 +74,7 @@ describe("Moderator Staking", () => {
       try {
         await program.methods
           .stakeModerator(insufficientStake)
-          .accounts({
+          .accountsPartial({
             moderator: testModerator.publicKey,
             globalState: globalStatePDA,
             moderatorTokenAccount: moderatorTokenAccount,
@@ -85,7 +85,7 @@ describe("Moderator Staking", () => {
           .signers([testModerator])
           .rpc();
         expect.fail("Should have failed");
-      } catch (err: any) {
+      } catch (err: unknown) {
         expect(err.toString()).to.include("InsufficientModeratorStake");
       }
     });
@@ -101,7 +101,7 @@ describe("Moderator Staking", () => {
 
       await program.methods
         .stakeModerator(additionalStake)
-        .accounts({
+        .accountsPartial({
           moderator: moderator.publicKey,
           globalState: globalStatePDA,
           moderatorTokenAccount: moderatorTokenAccount,
@@ -133,7 +133,7 @@ describe("Moderator Staking", () => {
         const moderatorTokenAccount = Keypair.generate().publicKey;
         await program.methods
           .stakeModerator(MOD_STAKE_MIN)
-          .accounts({
+          .accountsPartial({
             moderator: moderator.publicKey,
             globalState: globalStatePDA,
             moderatorTokenAccount: moderatorTokenAccount,
@@ -157,7 +157,7 @@ describe("Moderator Staking", () => {
       
       const tx = await program.methods
         .slashModerator()
-        .accounts({
+        .accountsPartial({
           superModerator: admin.publicKey,
           globalState: globalStatePDA,
           moderatorStake: moderatorStakePDA,
@@ -178,7 +178,7 @@ describe("Moderator Staking", () => {
       try {
         await program.methods
           .slashModerator()
-          .accounts({
+          .accountsPartial({
             superModerator: nonAdmin.publicKey,
             globalState: globalStatePDA,
             moderatorStake: moderatorStakePDA,
@@ -187,7 +187,7 @@ describe("Moderator Staking", () => {
           .signers([nonAdmin])
           .rpc();
         expect.fail("Should have failed");
-      } catch (err: any) {
+      } catch (err: unknown) {
         expect(err.toString()).to.include("Unauthorized");
       }
     });

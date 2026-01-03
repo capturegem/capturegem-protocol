@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { Keypair, SystemProgram, SYSVAR_CLOCK_PUBKEY } from "@solana/web3.js";
+import { Keypair, SystemProgram, SYSVAR_CLOCK_PUBKEY, PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
 import {
   program,
@@ -13,8 +13,8 @@ import {
 import { COLLECTION_ID } from "./helpers/constants";
 
 describe("Buy Access Token", () => {
-  let collectionPDA: any;
-  let mint: any;
+  let collectionPDA: PublicKey;
+  let mint: PublicKey;
 
   before(async () => {
     await setupAccounts();
@@ -47,7 +47,7 @@ describe("Buy Access Token", () => {
           ACCESS_THRESHOLD_USD,
           MAX_VIDEO_LIMIT
         )
-        .accounts({
+        .accountsPartial({
           owner: user.publicKey,
           collection: collectionPDA,
           oracleFeed: oracleFeed.publicKey,
@@ -55,7 +55,7 @@ describe("Buy Access Token", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           rent: SYSVAR_RENT_PUBKEY,
-        } as any)
+        })
         .signers([user])
         .rpc();
       
@@ -70,7 +70,7 @@ describe("Buy Access Token", () => {
     try {
       await program.methods
         .buyAccessToken()
-        .accounts({
+        .accountsPartial({
           payer: user.publicKey,
           collection: collectionPDA,
           buyerTokenAccount: buyerTokenAccount,
@@ -79,11 +79,11 @@ describe("Buy Access Token", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
-        } as Parameters<typeof program.methods.buyAccessToken>[0]['accounts'])
+        })
         .signers([user])
         .rpc();
       expect.fail("Should have failed");
-    } catch (err: any) {
+    } catch (err: unknown) {
       // The actual error might be InsufficientFunds or InvalidOraclePrice (if oracle returns 0)
       const errStr = err.toString();
       expect(errStr.includes("InsufficientFunds") || errStr.includes("InvalidOraclePrice")).to.be.true;
@@ -97,7 +97,7 @@ describe("Buy Access Token", () => {
     try {
       await program.methods
         .buyAccessToken()
-        .accounts({
+        .accountsPartial({
           payer: user.publicKey,
           collection: collectionPDA,
           buyerTokenAccount: buyerTokenAccount,
@@ -106,11 +106,11 @@ describe("Buy Access Token", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
-        } as Parameters<typeof program.methods.buyAccessToken>[0]['accounts'])
+        })
         .signers([user])
         .rpc();
       expect.fail("Should have failed");
-    } catch (err: any) {
+    } catch (err: unknown) {
       // The actual error might be InsufficientFunds or InvalidOraclePrice (if oracle returns 0)
       const errStr = err.toString();
       expect(errStr.includes("InsufficientFunds") || errStr.includes("InvalidOraclePrice")).to.be.true;
@@ -125,7 +125,7 @@ describe("Buy Access Token", () => {
     try {
       await program.methods
         .buyAccessToken()
-        .accounts({
+        .accountsPartial({
           payer: user.publicKey,
           collection: fakeCollection,
           buyerTokenAccount: buyerTokenAccount,
@@ -134,11 +134,11 @@ describe("Buy Access Token", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
-        } as any)
+        })
         .signers([user])
         .rpc();
       expect.fail("Should have failed");
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Should fail because collection doesn't exist
       expect(err.toString()).to.include("AccountNotInitialized");
     }

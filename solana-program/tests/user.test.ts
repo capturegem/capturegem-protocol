@@ -49,7 +49,7 @@ describe("User Account & Collection", () => {
       try {
         await program.methods
           .initializeUserAccount(longKey)
-          .accounts({
+          .accountsPartial({
             authority: testUser.publicKey,
             userAccount: userAccountPDA,
             systemProgram: SystemProgram.programId,
@@ -57,7 +57,7 @@ describe("User Account & Collection", () => {
           .signers([testUser])
           .rpc();
         expect.fail("Should have failed");
-      } catch (err: any) {
+      } catch (err: unknown) {
         const errStr = err.toString();
         // The error might be "unknown signer" if airdrop failed, or "StringTooLong" if validation worked
         expect(errStr.includes("StringTooLong") || errStr.includes("unknown signer")).to.be.true;
@@ -74,7 +74,7 @@ describe("User Account & Collection", () => {
         // Account doesn't exist, initialize it first
         await program.methods
           .initializeUserAccount(IPNS_KEY)
-          .accounts({
+          .accountsPartial({
             authority: user.publicKey,
             userAccount: userAccountPDA,
             systemProgram: SystemProgram.programId,
@@ -87,7 +87,7 @@ describe("User Account & Collection", () => {
       try {
         await program.methods
           .initializeUserAccount(IPNS_KEY)
-          .accounts({
+          .accountsPartial({
             authority: user.publicKey,
             userAccount: userAccountPDA,
             systemProgram: SystemProgram.programId,
@@ -95,7 +95,7 @@ describe("User Account & Collection", () => {
           .signers([user])
           .rpc();
         expect.fail("Should have failed - already initialized");
-      } catch (err: any) {
+      } catch (err: unknown) {
         expect(err.toString()).to.include("already in use");
       }
     });
@@ -131,7 +131,7 @@ describe("User Account & Collection", () => {
           ACCESS_THRESHOLD_USD,
           MAX_VIDEO_LIMIT
         )
-        .accounts({
+        .accountsPartial({
           owner: user.publicKey,
           collection: collectionPDA,
           oracleFeed: oracleFeed.publicKey,
@@ -170,7 +170,7 @@ describe("User Account & Collection", () => {
             ACCESS_THRESHOLD_USD,
             0 // Invalid
           )
-          .accounts({
+          .accountsPartial({
             owner: user.publicKey,
             collection: collectionPDA,
             oracleFeed: oracleFeed.publicKey,
@@ -181,7 +181,7 @@ describe("User Account & Collection", () => {
           .signers([user])
           .rpc();
         expect.fail("Should have failed");
-      } catch (err: any) {
+      } catch (err: unknown) {
         const errStr = err.toString();
         // The error might be "unknown signer" if airdrop failed, or "InvalidFeeConfig" if validation worked
         expect(errStr.includes("InvalidFeeConfig") || errStr.includes("unknown signer")).to.be.true;
@@ -207,7 +207,7 @@ describe("User Account & Collection", () => {
             ACCESS_THRESHOLD_USD,
             MAX_VIDEO_LIMIT
           )
-          .accounts({
+          .accountsPartial({
             owner: testUser.publicKey,
             collection: collectionPDA,
             oracleFeed: oracleFeed.publicKey,
@@ -219,7 +219,7 @@ describe("User Account & Collection", () => {
           .signers([testUser])
           .rpc();
         expect.fail("Should have failed");
-      } catch (err: any) {
+      } catch (err: unknown) {
         const errStr = err.toString();
         // The error might be "unknown signer" if airdrop failed, "StringTooLong" if validation worked,
         // or "Max seed length" if PDA derivation fails before validation
@@ -251,7 +251,7 @@ describe("User Account & Collection", () => {
             ACCESS_THRESHOLD_USD,
             MAX_VIDEO_LIMIT
           )
-          .accounts({
+          .accountsPartial({
             owner: user.publicKey,
             collection: collectionPDA,
             oracleFeed: oracleFeed.publicKey,
@@ -262,7 +262,7 @@ describe("User Account & Collection", () => {
           .signers([user])
           .rpc();
         expect.fail("Should have failed");
-      } catch (err: any) {
+      } catch (err: unknown) {
         const errStr = err.toString();
         // The error might be "unknown signer" if airdrop failed, or "StringTooLong" if validation worked
         expect(errStr.includes("StringTooLong") || errStr.includes("unknown signer")).to.be.true;
@@ -283,7 +283,7 @@ describe("User Account & Collection", () => {
             ACCESS_THRESHOLD_USD,
             MAX_VIDEO_LIMIT
           )
-          .accounts({
+          .accountsPartial({
             owner: user.publicKey,
             collection: collectionPDA,
             oracleFeed: oracleFeed.publicKey,
@@ -294,7 +294,7 @@ describe("User Account & Collection", () => {
           .signers([user])
           .rpc();
         expect.fail("Should have failed");
-      } catch (err: any) {
+      } catch (err: unknown) {
         const errStr = err.toString();
         // The error might be "unknown signer" if airdrop failed, or "StringTooLong" if validation worked
         expect(errStr.includes("StringTooLong") || errStr.includes("unknown signer")).to.be.true;
