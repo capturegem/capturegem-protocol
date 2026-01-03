@@ -32,6 +32,13 @@ pub mod solana_program {
         instructions::user::create_collection(ctx, collection_id, name, content_cid, access_threshold_usd, max_video_limit)
     }
 
+    pub fn mint_collection_tokens(
+        ctx: Context<MintCollectionTokens>,
+        amount: u64,
+    ) -> Result<()> {
+        instructions::user::mint_collection_tokens(ctx, amount)
+    }
+
     pub fn upload_video(
         ctx: Context<UploadVideo>,
         video_id: String,
