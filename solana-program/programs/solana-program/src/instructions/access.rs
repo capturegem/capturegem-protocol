@@ -3,7 +3,7 @@ use anchor_lang::solana_program::program::invoke_signed;
 use anchor_lang::solana_program::system_instruction;
 use anchor_spl::token_interface::{TokenInterface, TransferChecked, Burn, burn, Mint, TokenAccount, MintTo, mint_to};
 use anchor_spl::token_2022::{self, Token2022};
-use anchor_spl::associated_token::AssociatedToken;
+use anchor_spl::associated_token::{AssociatedToken, Create, create};
 use spl_token_2022::extension::{ExtensionType, StateWithExtensionsMut, BaseStateWithExtensionsMut};
 use spl_token_2022::state::Mint as MintState;
 use spl_token_2022::instruction::{transfer_checked as spl_transfer_checked, set_authority};
@@ -101,13 +101,9 @@ pub struct PurchaseAccess<'info> {
     pub access_nft_mint: AccountInfo<'info>,
 
     /// Purchaser's NFT token account (Associated Token Account for the access NFT)
-    #[account(
-        init_if_needed,
-        payer = purchaser,
-        associated_token::mint = access_nft_mint,
-        associated_token::authority = purchaser,
-    )]
-    pub purchaser_nft_account: InterfaceAccount<'info, TokenAccount>,
+    /// CHECK: Created manually after mint initialization to avoid init order issues
+    #[account(mut)]
+    pub purchaser_nft_account: UncheckedAccount<'info>,
 
     /// Collection token mint (for transfer_checked)
     /// ⚠️ SECURITY: Must match the collection's mint to prevent fake token payments
@@ -278,10 +274,32 @@ pub fn purchase_access(
     msg!("NonTransferable Access NFT mint created: {}", ctx.accounts.access_nft_mint.key());
 
     // ============================================================================
+    // CRITICAL: Create Associated Token Account (must be done after mint exists)
+    // ============================================================================
+    
+    // Manually create the ATA after mint initialization to avoid init order issues
+    // Anchor's init_if_needed would fail because the mint doesn't exist yet when
+    // the Accounts struct is validated
+    let create_ata_accounts = Create {
+        payer: ctx.accounts.purchaser.to_account_info(),
+        associated_token: ctx.accounts.purchaser_nft_account.to_account_info(),
+        authority: ctx.accounts.purchaser.to_account_info(),
+        mint: ctx.accounts.access_nft_mint.to_account_info(),
+        system_program: ctx.accounts.system_program.to_account_info(),
+        token_program: ctx.accounts.token_2022_program.to_account_info(),
+    };
+    let create_ata_ctx = CpiContext::new(
+        ctx.accounts.associated_token_program.to_account_info(),
+        create_ata_accounts
+    );
+    create(create_ata_ctx)?;
+    
+    msg!("Created Associated Token Account for purchaser: {}", ctx.accounts.purchaser.key());
+
+    // ============================================================================
     // CRITICAL: Mint 1 token to purchaser's Associated Token Account
     // ============================================================================
     
-    // The ATA is automatically created via init_if_needed constraint above
     // Now mint exactly 1 token to the purchaser's ATA
     let mint_to_accounts = MintTo {
         mint: ctx.accounts.access_nft_mint.to_account_info(),
