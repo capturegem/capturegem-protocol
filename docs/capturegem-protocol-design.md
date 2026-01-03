@@ -40,10 +40,11 @@ The client is designed as a "Zero-Configuration" application acting as both a me
 - **Granular Metrics:** It tracks incoming data chunks via the Bitswap protocol to identify exactly which peers provided which parts of the file. It measures latency (RTT), throughput (MB/s), and data integrity (Merkle DAG verification).
 - **Proof of Delivery:** This data is used to construct a "Proof of Delivery" payload that enables the user to cryptographically sign a "Release Escrow" transaction specifically for the peers that performed the work.
 
-**Embedded Wallet:** A local Solana filesystem wallet manages signing.
+**Embedded Wallet:** A local Solana filesystem wallet manages signing. The wallet code is implemented in `WalletManager.ts` (`@solana-program/client-library/libs/WalletManager.ts`) and runs in the same process as the Electron main process (`main.ts`). Other client library modules import `WalletManager` directly—there is no separate RPC service or inter-process communication required for wallet operations.
 
 - **Key Storage:** Private keys are encrypted using AES-256-GCM and stored locally on the user's disk. Keys never leave the device.
 - **Risk Profiles:** To improve UX, the wallet distinguishes between low-risk actions (liking, updating bio) which can be "Autosigned" if enabled, and high-risk actions (purchasing access, releasing escrow, transferring funds) which strictly require a biometric or password confirmation.
+- **Architecture:** The `WalletManager` class is instantiated in the Electron main process and passed to other client library classes (e.g., `ProtocolClient`, `AccessClient`) as a dependency. All wallet operations occur synchronously within the same Node.js process, ensuring low latency and simplified error handling.
 
 ### 2.2 High-Level Diagram
 
@@ -187,6 +188,261 @@ The client is designed as a "Zero-Configuration" application acting as both a me
 ## 3. Solana Program Design (The Smart Contract)
 
 The core logic resides in a custom Solana Program (Rust/Anchor), leveraging the high throughput of the network to handle real-time settlement and complex state transitions.
+
+### 3.0 Collection Manifest Schema (IPFS Document)
+
+Before diving into the on-chain program design, it's critical to understand the **Collection Manifest**—the off-chain catalog document that serves as the "table of contents" for all content in a collection. This manifest is stored on IPFS, and its CID is hashed (SHA-256) and stored on-chain to keep the content address private until purchase.
+
+#### 3.0.1 Manifest Purpose & Architecture
+
+The Collection Manifest is a JSON document that contains:
+- Complete metadata for every video in the collection
+- Creator/performer information
+- Technical specifications (resolution, VR support, duration)
+- Timestamps, tags, and content warnings
+
+**Privacy Model:**
+1. Creator uploads manifest to IPFS → receives CID (e.g., `QmXYZ...`)
+2. Creator computes SHA-256 hash of the CID → stores hash on-chain in `CollectionState`
+3. Purchasers see only the hash on-chain (CID remains secret)
+4. After purchase, pinners encrypt and reveal the actual CID to the buyer
+5. Buyer fetches manifest from IPFS using revealed CID
+6. Manifest contains CIDs of all individual videos in the collection
+
+**Key Security Properties:**
+- CID is never publicly visible on-chain (only the hash)
+- Only authorized purchasers (holding Access NFT) can obtain the CID
+- Manifest hash acts as a commitment—pinners cannot swap content after minting
+- Buyers verify `SHA256(revealed_CID) == on_chain_hash` before accepting
+
+#### 3.0.2 Manifest Schema (v1.0)
+
+**Top-Level Structure:**
+```json
+{
+  "schema_version": 1,
+  "collection_id": "creator-collection-2024",
+  "name": "Summer Collection 2024",
+  "description": "Exclusive summer content from @creator",
+  "creator": {
+    "username": "creator_username",
+    "display_name": "Creator Name",
+    "wallet_address": "5xKb...",
+    "bio": "Professional content creator...",
+    "avatar_cid": "QmAvatar...",
+    "social_links": {
+      "twitter": "https://twitter.com/...",
+      "website": "https://..."
+    },
+    "verified": true
+  },
+  "created_at": "2024-06-01T00:00:00Z",
+  "updated_at": "2024-06-15T10:30:00Z",
+  "total_videos": 12,
+  "total_duration_seconds": 7200,
+  "content_rating": "explicit",
+  "tags": ["summer", "outdoor", "4k"],
+  "cover_image_cid": "QmCover...",
+  "preview_cid": "QmPreview...",
+  "videos": [ /* array of video objects */ ]
+}
+```
+
+**Video Object Structure:**
+```json
+{
+  "video_id": "vid001",
+  "title": "Summer Beach Day",
+  "description": "A beautiful day at the beach...",
+  "cid": "QmVideoContent...",
+  "duration_seconds": 600,
+  "recorded_at": "2024-06-05T14:30:00Z",
+  "uploaded_at": "2024-06-06T09:00:00Z",
+  "performer_username": "creator_username",
+  "additional_performers": ["guest_performer"],
+  "technical_specs": {
+    "resolution": "3840x2160",
+    "fps": 60,
+    "codec": "h265",
+    "bitrate_kbps": 15000,
+    "is_vr": false,
+    "audio_codec": "aac",
+    "audio_bitrate_kbps": 256,
+    "hdr": true
+  },
+  "thumbnail_cid": "QmThumb001...",
+  "preview_clip_cid": "QmPreviewClip001...",
+  "tags": ["beach", "outdoor", "daytime"],
+  "content_warnings": [],
+  "file_size_bytes": 1200000000,
+  "file_format": "mp4"
+}
+```
+
+**VR Video Example:**
+```json
+{
+  "video_id": "vr_vid001",
+  "title": "VR Experience: Sunset",
+  "cid": "QmVRVideo...",
+  "duration_seconds": 900,
+  "recorded_at": "2024-06-10T19:00:00Z",
+  "performer_username": "creator_username",
+  "technical_specs": {
+    "resolution": "7680x4320",
+    "fps": 60,
+    "codec": "h265",
+    "bitrate_kbps": 40000,
+    "is_vr": true,
+    "vr_format": "equirectangular",
+    "vr_stereo_mode": "side-by-side",
+    "audio_codec": "aac",
+    "audio_bitrate_kbps": 320
+  },
+  "tags": ["vr", "180", "sunset"]
+}
+```
+
+#### 3.0.3 Schema Fields Reference
+
+**Required Fields (Collection Level):**
+- `schema_version` (number): Protocol version for forward compatibility (current: 1)
+- `collection_id` (string): Matches on-chain CollectionState identifier
+- `name` (string): Human-readable collection name
+- `creator` (object): Creator/performer metadata
+  - `username` (string): Stage name/handle
+- `created_at` (ISO 8601 string): Manifest creation timestamp
+- `total_videos` (number): Count of videos in collection
+- `total_duration_seconds` (number): Sum of all video durations
+- `content_rating` (string): "explicit" | "mature" | "general"
+- `videos` (array): Array of video metadata objects
+
+**Required Fields (Video Level):**
+- `video_id` (string): Unique identifier within collection
+- `title` (string): Video title
+- `cid` (string): IPFS CID of video file
+- `duration_seconds` (number): Video length in seconds
+- `recorded_at` (ISO 8601 string): Recording timestamp
+- `performer_username` (string): Primary performer stage name
+- `technical_specs` (object): Technical specifications
+  - `resolution` (string): Video dimensions (e.g., "1920x1080", "3840x2160")
+  - `is_vr` (boolean): Whether this is a VR/360 video
+
+**VR-Specific Fields (when is_vr = true):**
+- `vr_format` (string): "equirectangular" | "cubemap" | "dome" | "fisheye"
+- `vr_stereo_mode` (string): "mono" | "side-by-side" | "top-bottom" | "anaglyph"
+
+**Optional but Recommended:**
+- `fps` (number): Frame rate (30, 60, 120)
+- `codec` (string): Video codec ("h264", "h265", "vp9")
+- `bitrate_kbps` (number): Video bitrate
+- `thumbnail_cid` (string): IPFS CID of thumbnail image
+- `tags` (array): Content tags for search/discovery
+- `file_size_bytes` (number): File size for bandwidth estimation
+
+#### 3.0.4 Client Library Usage
+
+The TypeScript client library provides builders for creating manifests:
+
+```typescript
+import {
+  CollectionManifestBuilder,
+  VideoMetadataBuilder,
+  createStandardVideoSpecs,
+  createVRVideoSpecs,
+  hashCollectionManifest,
+} from "@capturegem/client-library";
+
+// Build a manifest
+const builder = new CollectionManifestBuilder("collection-id", "Collection Name")
+  .setDescription("My content collection")
+  .setCreator({
+    username: "performer_username",
+    display_name: "Performer Name",
+    verified: true,
+  })
+  .setContentRating("explicit")
+  .setTags(["summer", "outdoor"]);
+
+// Add videos
+const video1 = new VideoMetadataBuilder("vid001", "Video Title", "QmVideo1...")
+  .setDuration(600)
+  .setRecordedAt(new Date("2024-06-01"))
+  .setPerformer("performer_username")
+  .setTechnicalSpecs(createStandardVideoSpecs("3840x2160", false))
+  .setThumbnail("QmThumb1...")
+  .build();
+
+builder.addVideo(video1);
+
+// Add VR video
+const vrVideo = new VideoMetadataBuilder("vr001", "VR Experience", "QmVRVideo...")
+  .setDuration(900)
+  .setRecordedAt(new Date("2024-06-05"))
+  .setPerformer("performer_username")
+  .setTechnicalSpecs(
+    createVRVideoSpecs("7680x4320", "equirectangular", "side-by-side", 60)
+  )
+  .build();
+
+builder.addVideo(vrVideo);
+
+// Build and hash
+const { manifest, hash, hashHex } = builder.buildWithHash();
+
+console.log("Manifest hash (for on-chain):", hashHex);
+
+// Upload manifest to IPFS
+const ipfs = create({ url: "http://127.0.0.1:5001" });
+const { cid } = await ipfs.add(JSON.stringify(manifest));
+
+console.log("Manifest CID (keep secret):", cid.toString());
+
+// Verify: SHA256(cid) should match the hash
+```
+
+#### 3.0.5 Manifest Validation
+
+The client library includes validation to ensure manifests are well-formed:
+
+```typescript
+import { validateCollectionManifest } from "@capturegem/client-library";
+
+const validation = validateCollectionManifest(manifest);
+
+if (!validation.valid) {
+  console.error("Validation errors:", validation.errors);
+  // [
+  //   "Missing performer_username in video 2",
+  //   "total_videos doesn't match videos array length",
+  // ]
+}
+```
+
+**Validation Rules:**
+- All required fields present
+- `total_videos` matches array length
+- `total_duration_seconds` matches sum of video durations
+- Each video has valid technical specs
+- VR videos have VR-specific fields when `is_vr = true`
+- Timestamps are valid ISO 8601 format
+- CIDs are valid IPFS CIDs (basic format check)
+
+#### 3.0.6 Forward Compatibility
+
+The `schema_version` field enables protocol evolution:
+- Current version: 1
+- Future versions can add optional fields without breaking old clients
+- Clients should check version and gracefully handle unknown fields
+- Backwards-incompatible changes require version increment
+
+**Migration Path:**
+If a collection needs schema updates (e.g., adding new videos), the creator:
+1. Creates new manifest with updated content
+2. Uploads to IPFS → new CID
+3. Calls `update_collection` on-chain with new CID hash
+4. Existing purchasers are notified of update
+5. Pinners begin serving new manifest to future purchasers
 
 ### 3.1 Tokenomics & Assets
 
@@ -420,11 +676,20 @@ struct StakerPosition {
 
 ### 4.1 Collection Creation & Minting
 
+- **Content Preparation:** Creator uploads all video files to IPFS and receives CIDs for each video.
+- **Manifest Creation:** Using the `CollectionManifestBuilder`, creator constructs a complete catalog with:
+  - Video CIDs, titles, descriptions
+  - Recording timestamps
+  - Performer usernames
+  - Technical specs (resolution, VR format, duration)
+  - Thumbnails and preview clips
+- **Manifest Upload:** Creator uploads the manifest JSON to IPFS → receives manifest CID
+- **CID Hashing:** Creator computes SHA-256 hash of the manifest CID (this hash will be stored on-chain)
 - **Initialization:** User calls `create_collection`, providing:
   - The `collection_id` (unique slug).
-  - The SHA-256 hash of the collection's IPFS CID (`cid_hash`). The actual CID is never stored on-chain.
-  - The creator must have already uploaded the Collection Manifest (containing video CIDs) to IPFS and be actively pinning it.
-- **CID Hash Commitment:** The `cid_hash` is stored in the `CollectionState` PDA. This hash is publicly visible and used by purchasers to verify that pinners reveal the correct CID. The actual content address remains private, known only to the creator and authorized pinners.
+  - The SHA-256 hash of the collection's IPFS manifest CID (`cid_hash`). The actual CID is never stored on-chain.
+  - The creator must be actively pinning the manifest and all video content on IPFS.
+- **CID Hash Commitment:** The `cid_hash` is stored in the `CollectionState` PDA. This hash is publicly visible and used by purchasers to verify that pinners reveal the correct manifest CID. The actual content address remains private, known only to the creator and authorized pinners.
 - **Mint & Distribute:**
   - The Program mints the total supply (e.g., 1,000,000 tokens) of the Collection Token.
   - 10% is transferred to the Creator's wallet.
