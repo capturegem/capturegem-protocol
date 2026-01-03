@@ -134,13 +134,13 @@ pub struct PurchaseAccess<'info> {
 /// Purchase access to a collection
 /// Splits payment: 50% to staking pool (for token holders), 50% to escrow (for peers)
 /// Mints a non-transferable Access NFT to the purchaser as proof of access rights
+/// Note: Any remainder (dust) from odd amounts is added to the staking pool
 pub fn purchase_access(
     ctx: Context<PurchaseAccess>,
     total_amount: u64,
     cid_hash: [u8; 32],
 ) -> Result<()> {
     require!(total_amount > 0, ProtocolError::InsufficientFunds);
-    require!(total_amount % 2 == 0, ProtocolError::InvalidFeeConfig); // Must be even for clean split
 
     let clock = &ctx.accounts.clock;
     let access_escrow = &mut ctx.accounts.access_escrow;
@@ -186,6 +186,19 @@ pub fn purchase_access(
         .checked_mul(SPLIT_TO_PEERS_ESCROW)
         .ok_or(ProtocolError::MathOverflow)?
         .checked_div(100)
+        .ok_or(ProtocolError::MathOverflow)?;
+    
+    // Handle remainder (dust) from odd amounts - add to staking pool
+    let total_split = amount_to_stakers
+        .checked_add(amount_to_escrow)
+        .ok_or(ProtocolError::MathOverflow)?;
+    let remainder = amount_after_fee
+        .checked_sub(total_split)
+        .ok_or(ProtocolError::MathOverflow)?;
+    
+    // Add remainder to staking pool (ensures all funds are distributed)
+    let final_amount_to_stakers = amount_to_stakers
+        .checked_add(remainder)
         .ok_or(ProtocolError::MathOverflow)?;
 
     // ============================================================================
@@ -317,7 +330,7 @@ pub fn purchase_access(
     }
 
     // ============================================================================
-    // STEP 4: Transfer 50% to staking pool (after fee deduction)
+    // STEP 4: Transfer 50% to staking pool (after fee deduction, including remainder)
     // ============================================================================
     
     let transfer_to_pool = TransferChecked {
@@ -327,11 +340,11 @@ pub fn purchase_access(
         authority: ctx.accounts.purchaser.to_account_info(),
     };
     let cpi_ctx_pool = CpiContext::new(ctx.accounts.token_program.to_account_info(), transfer_to_pool);
-    anchor_spl::token_interface::transfer_checked(cpi_ctx_pool, amount_to_stakers, ctx.accounts.collection_mint.decimals)?;
+    anchor_spl::token_interface::transfer_checked(cpi_ctx_pool, final_amount_to_stakers, ctx.accounts.collection_mint.decimals)?;
 
-    // Distribute rewards to stakers (full amount, no fees deducted)
+    // Distribute rewards to stakers (full amount including remainder, no fees deducted)
     if staking_pool.total_staked > 0 {
-        let reward_increment = (amount_to_stakers as u128)
+        let reward_increment = (final_amount_to_stakers as u128)
             .checked_mul(REWARD_PRECISION)
             .ok_or(ProtocolError::MathOverflow)?
             .checked_div(staking_pool.total_staked as u128)
@@ -356,14 +369,15 @@ pub fn purchase_access(
     anchor_spl::token_interface::transfer_checked(cpi_ctx_escrow, amount_to_escrow, ctx.accounts.collection_mint.decimals)?;
 
     msg!(
-        "AccessPurchased: Purchaser={} Collection={} NFT={} Total={} Fee={} ToStakers={} ToEscrow={} ExpiresAt={}",
+        "AccessPurchased: Purchaser={} Collection={} NFT={} Total={} Fee={} ToStakers={} ToEscrow={} Remainder={} ExpiresAt={}",
         ctx.accounts.purchaser.key(),
         collection.collection_id,
         nft_mint_key,
         total_amount,
         total_fee,
-        amount_to_stakers,
+        final_amount_to_stakers,
         amount_to_escrow,
+        remainder,
         clock.unix_timestamp + ESCROW_EXPIRY_SECONDS
     );
 
@@ -783,6 +797,9 @@ pub struct BurnExpiredEscrow<'info> {
 /// Permissionless instruction to burn tokens in expired escrow accounts (after 24 hours).
 /// This creates deflationary pressure and cleans up abandoned escrow accounts.
 /// Anyone can call this and receive the escrow account rent as an incentive.
+/// 
+/// Note: Burns the actual token account balance (not amount_locked) to handle dust
+/// remaining from integer division rounding in release_escrow.
 pub fn burn_expired_escrow(ctx: Context<BurnExpiredEscrow>) -> Result<()> {
     let access_escrow = &ctx.accounts.access_escrow;
     let clock = &ctx.accounts.clock;
@@ -797,8 +814,22 @@ pub fn burn_expired_escrow(ctx: Context<BurnExpiredEscrow>) -> Result<()> {
         ProtocolError::EscrowNotExpired
     );
 
-    let amount_to_burn = access_escrow.amount_locked;
-    require!(amount_to_burn > 0, ProtocolError::InsufficientFunds);
+    // Read actual token account balance (handles dust from rounding)
+    // SPL Token account structure: mint (32 bytes) + owner (32 bytes) + amount (8 bytes) at offset 64
+    let token_account_data = ctx.accounts.escrow_token_account.try_borrow_data()?;
+    require!(
+        token_account_data.len() >= 72, // At least 64 + 8 bytes
+        ProtocolError::InvalidAccount
+    );
+    let amount_bytes = &token_account_data[64..72];
+    let actual_balance = u64::from_le_bytes(
+        amount_bytes.try_into().map_err(|_| ProtocolError::InvalidAccount)?
+    );
+    
+    require!(actual_balance > 0, ProtocolError::InsufficientFunds);
+    
+    // Use actual token account balance instead of amount_locked to handle dust
+    let amount_to_burn = actual_balance;
 
     // Burn the tokens permanently (reduces collection token supply)
     let burn_ix = Burn {
