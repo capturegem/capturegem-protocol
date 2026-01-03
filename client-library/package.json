@@ -9,6 +9,7 @@
     "example:purchaser": "ts-node examples/purchaser-flow-example.ts",
     "example:pinner": "ts-node examples/pinner-flow-example.ts",
     "build": "tsc",
+    "typecheck": "tsc --noEmit --project tsconfig.json",
     "lint": "eslint . --ext .ts",
     "test": "jest"
   },

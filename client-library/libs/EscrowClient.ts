@@ -18,7 +18,7 @@ import {
 } from "@solana/web3.js";
 import { Program, BN, AnchorProvider } from "@coral-xyz/anchor";
 import { TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
-import { SolanaProgram } from "../../target/types/solana_program";
+import { SolanaProgram } from "../../solana-program/target/types/solana_program";
 
 /**
  * Pinner payment distribution

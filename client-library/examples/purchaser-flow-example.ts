@@ -19,7 +19,7 @@ import { AccessClient } from "../libs/AccessClient";
 import { hashCID } from "../libs/CryptoUtils";
 
 // Load your program IDL (replace with actual IDL)
-// import idl from "../../target/idl/solana_program.json";
+// import idl from "../../solana-program/target/idl/solana_program.json";
 
 async function main() {
   // ============================================================================

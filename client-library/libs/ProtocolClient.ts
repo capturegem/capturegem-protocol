@@ -2,7 +2,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { WalletManager, RiskLevel } from "./WalletManager";
-import { SolanaProgram } from "../../target/types/solana_program";
+import { SolanaProgram } from "../../solana-program/target/types/solana_program";
 
 // Seeds must match Rust constants
 const SEED_COLLECTION_STATE = Buffer.from("collection_state");

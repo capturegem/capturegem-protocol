@@ -19,7 +19,7 @@ import {
   SYSVAR_RENT_PUBKEY,
 } from "@solana/web3.js";
 import { Program, BN, AnchorProvider } from "@coral-xyz/anchor";
-import { SolanaProgram } from "../../target/types/solana_program";
+import { SolanaProgram } from "../../solana-program/target/types/solana_program";
 import {
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,

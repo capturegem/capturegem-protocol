@@ -12,7 +12,7 @@
 
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { Program, BN, AnchorProvider } from "@coral-xyz/anchor";
-import { SolanaProgram } from "../../target/types/solana_program";
+import { SolanaProgram } from "../../solana-program/target/types/solana_program";
 import { OrcaClient } from "./OrcaClient";
 import { ProtocolClient } from "./ProtocolClient";
 import { AccessClient } from "./AccessClient";
