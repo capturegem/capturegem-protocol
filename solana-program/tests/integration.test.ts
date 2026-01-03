@@ -81,6 +81,9 @@ describe("Integration Tests", () => {
       const [collectionPDA] = getCollectionPDA(user.publicKey, uniqueCollectionId);
       const [mintPDA] = getMintPDA(collectionPDA);
       
+      const poolAddress = Keypair.generate().publicKey;
+      const claimVault = Keypair.generate().publicKey;
+
       await program.methods
         .createCollection(
           uniqueCollectionId,
@@ -92,9 +95,12 @@ describe("Integration Tests", () => {
           owner: user.publicKey,
           collection: collectionPDA,
           oracleFeed: oracleFeed.publicKey,
+          poolAddress: poolAddress,
+          claimVault: claimVault,
           mint: mintPDA,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
+          clock: SYSVAR_CLOCK_PUBKEY,
           rent: SYSVAR_RENT_PUBKEY,
         })
         .signers([user])
@@ -119,6 +125,8 @@ describe("Integration Tests", () => {
         await program.account.collectionState.fetch(collectionPDA);
       } catch {
         const [mintPDA] = getMintPDA(collectionPDA);
+        const poolAddress = Keypair.generate().publicKey;
+        const claimVault = Keypair.generate().publicKey;
         
         await program.methods
           .createCollection(
@@ -131,9 +139,13 @@ describe("Integration Tests", () => {
             owner: user.publicKey,
             collection: collectionPDA,
             oracleFeed: oracleFeed.publicKey,
+            poolAddress: poolAddress,
+            claimVault: claimVault,
             mint: mintPDA,
             tokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
+            clock: SYSVAR_CLOCK_PUBKEY,
+            rent: SYSVAR_RENT_PUBKEY,
           })
           .signers([user])
           .rpc();
@@ -264,6 +276,11 @@ describe("Integration Tests", () => {
       const [mint1PDA] = getMintPDA(collection1PDA);
       const [mint2PDA] = getMintPDA(collection2PDA);
 
+      const poolAddress1 = Keypair.generate().publicKey;
+      const claimVault1 = Keypair.generate().publicKey;
+      const poolAddress2 = Keypair.generate().publicKey;
+      const claimVault2 = Keypair.generate().publicKey;
+
       await program.methods
         .createCollection(
           uniqueId1,
@@ -275,9 +292,13 @@ describe("Integration Tests", () => {
           owner: user.publicKey,
           collection: collection1PDA,
           oracleFeed: oracleFeed.publicKey,
+          poolAddress: poolAddress1,
+          claimVault: claimVault1,
           mint: mint1PDA,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
+          clock: SYSVAR_CLOCK_PUBKEY,
+          rent: SYSVAR_RENT_PUBKEY,
         })
         .signers([user])
         .rpc();
@@ -293,9 +314,13 @@ describe("Integration Tests", () => {
           owner: user.publicKey,
           collection: collection2PDA,
           oracleFeed: oracleFeed.publicKey,
+          poolAddress: poolAddress2,
+          claimVault: claimVault2,
           mint: mint2PDA,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
+          clock: SYSVAR_CLOCK_PUBKEY,
+          rent: SYSVAR_RENT_PUBKEY,
         })
         .signers([user])
         .rpc();
@@ -318,6 +343,8 @@ describe("Integration Tests", () => {
         await program.account.collectionState.fetch(collectionPDA);
       } catch {
         const [mintPDA] = getMintPDA(collectionPDA);
+        const poolAddress = Keypair.generate().publicKey;
+        const claimVault = Keypair.generate().publicKey;
         
         await program.methods
           .createCollection(
@@ -330,9 +357,13 @@ describe("Integration Tests", () => {
             owner: user.publicKey,
             collection: collectionPDA,
             oracleFeed: oracleFeed.publicKey,
+            poolAddress: poolAddress,
+            claimVault: claimVault,
             mint: mintPDA,
             tokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
+            clock: SYSVAR_CLOCK_PUBKEY,
+            rent: SYSVAR_RENT_PUBKEY,
           })
           .signers([user])
           .rpc();

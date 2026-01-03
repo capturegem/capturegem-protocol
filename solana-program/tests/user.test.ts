@@ -122,6 +122,10 @@ describe("User Account & Collection", () => {
       
       const [mintPDA] = getMintPDA(collectionPDA);
 
+      const { SystemProgram, SYSVAR_CLOCK_PUBKEY } = await import("@solana/web3.js");
+      const poolAddress = Keypair.generate().publicKey; // Mock pool address
+      const claimVault = Keypair.generate().publicKey; // Mock claim vault
+
       const tx = await program.methods
         .createCollection(
           COLLECTION_ID,
@@ -133,9 +137,12 @@ describe("User Account & Collection", () => {
           owner: user.publicKey,
           collection: collectionPDA,
           oracleFeed: oracleFeed.publicKey,
+          poolAddress: poolAddress,
+          claimVault: claimVault,
           mint: mintPDA,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
+          clock: SYSVAR_CLOCK_PUBKEY,
           rent: SYSVAR_RENT_PUBKEY,
         })
         .signers([user])
@@ -206,6 +213,10 @@ describe("User Account & Collection", () => {
       const [collectionPDA] = getCollectionPDA(user.publicKey, "test-collection-2");
       const [mintPDA] = getMintPDA(collectionPDA);
 
+      const { SystemProgram, SYSVAR_CLOCK_PUBKEY } = await import("@solana/web3.js");
+      const poolAddress = Keypair.generate().publicKey;
+      const claimVault = Keypair.generate().publicKey;
+
       try {
         await program.methods
           .createCollection(
@@ -218,9 +229,13 @@ describe("User Account & Collection", () => {
             owner: user.publicKey,
             collection: collectionPDA,
             oracleFeed: oracleFeed.publicKey,
+            poolAddress: poolAddress,
+            claimVault: claimVault,
             mint: mintPDA,
             tokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
+            clock: SYSVAR_CLOCK_PUBKEY,
+            rent: SYSVAR_RENT_PUBKEY,
           })
           .signers([user])
           .rpc();
@@ -237,6 +252,10 @@ describe("User Account & Collection", () => {
       const [collectionPDA] = getCollectionPDA(user.publicKey, "test-collection-3");
       const [mintPDA] = getMintPDA(collectionPDA);
 
+      const { SystemProgram, SYSVAR_CLOCK_PUBKEY } = await import("@solana/web3.js");
+      const poolAddress = Keypair.generate().publicKey;
+      const claimVault = Keypair.generate().publicKey;
+
       try {
         await program.methods
           .createCollection(
@@ -249,9 +268,13 @@ describe("User Account & Collection", () => {
             owner: user.publicKey,
             collection: collectionPDA,
             oracleFeed: oracleFeed.publicKey,
+            poolAddress: poolAddress,
+            claimVault: claimVault,
             mint: mintPDA,
             tokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
+            clock: SYSVAR_CLOCK_PUBKEY,
+            rent: SYSVAR_RENT_PUBKEY,
           })
           .signers([user])
           .rpc();

@@ -91,8 +91,8 @@ describe("Moderation", () => {
       expect(ticket.resolved).to.be.false;
     });
 
-    it("Successfully creates DuplicateReport ticket", async () => {
-      const uniqueTargetId = `target-duplicate-${Date.now()}`;
+    it("Successfully creates CopyrightClaim ticket", async () => {
+      const uniqueTargetId = `target-copyright-${Date.now()}`;
       const [ticketPDA] = getModTicketPDA(uniqueTargetId);
 
       // Check if ticket already exists
@@ -109,7 +109,7 @@ describe("Moderation", () => {
       const tx = await program.methods
         .createTicket(
           uniqueTargetId,
-          { duplicateReport: {} },
+          { copyrightClaim: {} },
           REASON
         )
         .accountsPartial({
@@ -122,6 +122,7 @@ describe("Moderation", () => {
 
       const ticket = await program.account.modTicket.fetch(ticketPDA);
       expect(ticket.targetId).to.equal(uniqueTargetId);
+      expect(ticket.ticketType).to.deep.equal({ copyrightClaim: {} });
     });
 
     it("Successfully creates PerformerClaim ticket", async () => {

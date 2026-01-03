@@ -35,6 +35,10 @@ describe("Performer Escrow", () => {
     } catch {
       const [mintPDA] = getMintPDA(collectionPDA);
       
+      const { SystemProgram, SYSVAR_CLOCK_PUBKEY } = await import("@solana/web3.js");
+      const poolAddress = Keypair.generate().publicKey;
+      const claimVault = Keypair.generate().publicKey;
+
       await program.methods
         .createCollection(
           COLLECTION_ID,
@@ -46,9 +50,12 @@ describe("Performer Escrow", () => {
           owner: user.publicKey,
           collection: collectionPDA,
           oracleFeed: oracleFeed.publicKey,
+          poolAddress: poolAddress,
+          claimVault: claimVault,
           mint: mintPDA,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
+          clock: SYSVAR_CLOCK_PUBKEY,
           rent: SYSVAR_RENT_PUBKEY,
         })
         .signers([user])

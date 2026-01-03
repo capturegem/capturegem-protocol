@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { Keypair, SystemProgram, SYSVAR_CLOCK_PUBKEY, PublicKey } from "@solana/web3.js";
+import { Keypair, SystemProgram, SYSVAR_CLOCK_PUBKEY, SYSVAR_RENT_PUBKEY, PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
 import {
   program,
@@ -8,13 +8,15 @@ import {
   setupAccounts,
   getCollectionPDA,
   getMintPDA,
-  getViewRightsPDA,
+  getAccessEscrowPDA,
+  provider,
 } from "./helpers/setup";
-import { COLLECTION_ID } from "./helpers/constants";
+import { COLLECTION_ID, COLLECTION_NAME, CONTENT_CID, ACCESS_THRESHOLD_USD } from "./helpers/constants";
 
-describe("Buy Access Token", () => {
+describe("Access Escrow", () => {
   let collectionPDA: PublicKey;
   let mint: PublicKey;
+  let purchaser: Keypair;
 
   before(async () => {
     await setupAccounts();
@@ -25,9 +27,6 @@ describe("Buy Access Token", () => {
     await ensureUserAccountInitialized(user);
     
     // Create a collection for testing
-    const { SystemProgram, SYSVAR_RENT_PUBKEY } = await import("@solana/web3.js");
-    const { COLLECTION_NAME, CONTENT_CID, ACCESS_THRESHOLD_USD } = await import("./helpers/constants");
-    
     [collectionPDA] = getCollectionPDA(user.publicKey, COLLECTION_ID);
     const [mintPDA] = getMintPDA(collectionPDA);
     
@@ -50,9 +49,12 @@ describe("Buy Access Token", () => {
           owner: user.publicKey,
           collection: collectionPDA,
           oracleFeed: oracleFeed.publicKey,
+          poolAddress: Keypair.generate().publicKey, // Mock pool address
+          claimVault: Keypair.generate().publicKey, // Mock claim vault
           mint: mintPDA,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
+          clock: SYSVAR_CLOCK_PUBKEY,
           rent: SYSVAR_RENT_PUBKEY,
         })
         .signers([user])
@@ -60,92 +62,153 @@ describe("Buy Access Token", () => {
       
       mint = mintPDA;
     }
+
+    // Create a purchaser for testing
+    purchaser = Keypair.generate();
+    await provider.connection.requestAirdrop(purchaser.publicKey, 10 * 1e9);
+    await new Promise(resolve => setTimeout(resolve, 500));
   });
 
-  it("Fails if user has insufficient token balance", async () => {
-    const [viewRightsPDA] = getViewRightsPDA(user.publicKey, collectionPDA);
-    const buyerTokenAccount = await getAssociatedTokenAddress(mint, user.publicKey);
+  describe("Create Access Escrow", () => {
+    it("Fails if amount_locked is 0", async () => {
+      const [accessEscrowPDA] = getAccessEscrowPDA(purchaser.publicKey, collectionPDA);
+      const purchaserTokenAccount = await getAssociatedTokenAddress(mint, purchaser.publicKey);
+      const escrowTokenAccount = Keypair.generate().publicKey; // Mock escrow token account
 
-    try {
-      await program.methods
-        .buyAccessToken()
-        .accountsPartial({
-          payer: user.publicKey,
-          collection: collectionPDA,
-          buyerTokenAccount: buyerTokenAccount,
-          oracleFeed: oracleFeed.publicKey,
-          viewRights: viewRightsPDA,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          clock: SYSVAR_CLOCK_PUBKEY,
-        })
-        .signers([user])
-        .rpc();
-      expect.fail("Should have failed");
-    } catch (err: unknown) {
-      // The actual error might be InsufficientFunds or InvalidOraclePrice (if oracle returns 0)
-      const errStr = err.toString();
-      expect(errStr.includes("InsufficientFunds") || errStr.includes("InvalidOraclePrice")).to.be.true;
-    }
+      try {
+        await program.methods
+          .createAccessEscrow(new (await import("@coral-xyz/anchor")).BN(0))
+          .accountsPartial({
+            purchaser: purchaser.publicKey,
+            collection: collectionPDA,
+            purchaserTokenAccount: purchaserTokenAccount,
+            escrowTokenAccount: escrowTokenAccount,
+            accessEscrow: accessEscrowPDA,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            clock: SYSVAR_CLOCK_PUBKEY,
+          })
+          .signers([purchaser])
+          .rpc();
+        expect.fail("Should have failed - amount is 0");
+      } catch (err: unknown) {
+        const errStr = err.toString();
+        expect(errStr.includes("InsufficientFunds")).to.be.true;
+      }
+    });
+
+    it("Fails if collection doesn't exist", async () => {
+      const fakeCollection = Keypair.generate().publicKey;
+      const [accessEscrowPDA] = getAccessEscrowPDA(purchaser.publicKey, fakeCollection);
+      const purchaserTokenAccount = await getAssociatedTokenAddress(mint, purchaser.publicKey);
+      const escrowTokenAccount = Keypair.generate().publicKey;
+
+      try {
+        await program.methods
+          .createAccessEscrow(new (await import("@coral-xyz/anchor")).BN(1000))
+          .accountsPartial({
+            purchaser: purchaser.publicKey,
+            collection: fakeCollection,
+            purchaserTokenAccount: purchaserTokenAccount,
+            escrowTokenAccount: escrowTokenAccount,
+            accessEscrow: accessEscrowPDA,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            clock: SYSVAR_CLOCK_PUBKEY,
+          })
+          .signers([purchaser])
+          .rpc();
+        expect.fail("Should have failed - collection doesn't exist");
+      } catch (err: unknown) {
+        // Should fail because collection doesn't exist
+        expect(err.toString()).to.include("AccountNotInitialized");
+      }
+    });
   });
 
-  it("Fails if user has 0 token balance", async () => {
-    const [viewRightsPDA] = getViewRightsPDA(user.publicKey, collectionPDA);
-    const buyerTokenAccount = await getAssociatedTokenAddress(mint, user.publicKey);
+  describe("Release Escrow", () => {
+    it("Fails if access escrow doesn't exist", async () => {
+      const fakePurchaser = Keypair.generate();
+      const [accessEscrowPDA] = getAccessEscrowPDA(fakePurchaser.publicKey, collectionPDA);
+      const escrowTokenAccount = Keypair.generate().publicKey;
 
-    try {
-      await program.methods
-        .buyAccessToken()
-        .accountsPartial({
-          payer: user.publicKey,
-          collection: collectionPDA,
-          buyerTokenAccount: buyerTokenAccount,
-          oracleFeed: oracleFeed.publicKey,
-          viewRights: viewRightsPDA,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          clock: SYSVAR_CLOCK_PUBKEY,
-        })
-        .signers([user])
-        .rpc();
-      expect.fail("Should have failed");
-    } catch (err: unknown) {
-      // The actual error might be InsufficientFunds or InvalidOraclePrice (if oracle returns 0)
-      const errStr = err.toString();
-      expect(errStr.includes("InsufficientFunds") || errStr.includes("InvalidOraclePrice")).to.be.true;
-    }
+      try {
+        await program.methods
+          .releaseEscrow(
+            [Keypair.generate().publicKey],
+            [new (await import("@coral-xyz/anchor")).BN(100)]
+          )
+          .accountsPartial({
+            purchaser: fakePurchaser.publicKey,
+            collection: collectionPDA,
+            accessEscrow: accessEscrowPDA,
+            escrowTokenAccount: escrowTokenAccount,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            clock: SYSVAR_CLOCK_PUBKEY,
+          })
+          .signers([fakePurchaser])
+          .rpc();
+        expect.fail("Should have failed - escrow doesn't exist");
+      } catch (err: unknown) {
+        expect(err.toString()).to.include("AccountNotInitialized");
+      }
+    });
+
+    it("Fails if peer_wallets and peer_weights length mismatch", async () => {
+      const [accessEscrowPDA] = getAccessEscrowPDA(purchaser.publicKey, collectionPDA);
+      const escrowTokenAccount = Keypair.generate().publicKey;
+
+      try {
+        await program.methods
+          .releaseEscrow(
+            [Keypair.generate().publicKey, Keypair.generate().publicKey],
+            [new (await import("@coral-xyz/anchor")).BN(100)]
+          )
+          .accountsPartial({
+            purchaser: purchaser.publicKey,
+            collection: collectionPDA,
+            accessEscrow: accessEscrowPDA,
+            escrowTokenAccount: escrowTokenAccount,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            clock: SYSVAR_CLOCK_PUBKEY,
+          })
+          .signers([purchaser])
+          .rpc();
+        expect.fail("Should have failed - length mismatch");
+      } catch (err: unknown) {
+        const errStr = err.toString();
+        expect(errStr.includes("InvalidFeeConfig") || errStr.includes("constraint")).to.be.true;
+      }
+    });
+
+    it("Fails if peer_wallets is empty", async () => {
+      const [accessEscrowPDA] = getAccessEscrowPDA(purchaser.publicKey, collectionPDA);
+      const escrowTokenAccount = Keypair.generate().publicKey;
+
+      try {
+        await program.methods
+          .releaseEscrow(
+            [],
+            []
+          )
+          .accountsPartial({
+            purchaser: purchaser.publicKey,
+            collection: collectionPDA,
+            accessEscrow: accessEscrowPDA,
+            escrowTokenAccount: escrowTokenAccount,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            clock: SYSVAR_CLOCK_PUBKEY,
+          })
+          .signers([purchaser])
+          .rpc();
+        expect.fail("Should have failed - empty peer list");
+      } catch (err: unknown) {
+        const errStr = err.toString();
+        expect(errStr.includes("InvalidFeeConfig") || errStr.includes("constraint")).to.be.true;
+      }
+    });
   });
-
-  it("Fails if collection doesn't exist", async () => {
-    const fakeCollection = Keypair.generate().publicKey;
-    const [viewRightsPDA] = getViewRightsPDA(user.publicKey, fakeCollection);
-    const buyerTokenAccount = await getAssociatedTokenAddress(mint, user.publicKey);
-
-    try {
-      await program.methods
-        .buyAccessToken()
-        .accountsPartial({
-          payer: user.publicKey,
-          collection: fakeCollection,
-          buyerTokenAccount: buyerTokenAccount,
-          oracleFeed: oracleFeed.publicKey,
-          viewRights: viewRightsPDA,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          clock: SYSVAR_CLOCK_PUBKEY,
-        })
-        .signers([user])
-        .rpc();
-      expect.fail("Should have failed");
-    } catch (err: unknown) {
-      // Should fail because collection doesn't exist
-      expect(err.toString()).to.include("AccountNotInitialized");
-    }
-  });
-
-  // Note: Success cases for buyAccessToken would require:
-  // 1. Creating actual token accounts with balances
-  // 2. Setting up a real oracle feed
-  // 3. Minting tokens to the user
-  // These are complex integration tests that would be better in a separate integration test file
 });

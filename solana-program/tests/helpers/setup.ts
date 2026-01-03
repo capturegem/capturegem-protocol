@@ -111,6 +111,20 @@ export const getModeratorStakePDA = (moderator: PublicKey): [PublicKey, number] 
   );
 };
 
+export const getAccessEscrowPDA = (purchaser: PublicKey, collection: PublicKey): [PublicKey, number] => {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("access_escrow"), purchaser.toBuffer(), collection.toBuffer()],
+    program.programId
+  );
+};
+
+export const getPeerTrustStatePDA = (peerWallet: PublicKey): [PublicKey, number] => {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("peer_trust"), peerWallet.toBuffer()],
+    program.programId
+  );
+};
+
 // Helper to check if an account exists
 export async function accountExists(accountPubkey: PublicKey): Promise<boolean> {
   try {
