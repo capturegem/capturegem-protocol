@@ -73,25 +73,367 @@ export interface PeerTrustState {
 }
 
 // ============================================================================
+// NEW: Escrow & Payment Types
+// ============================================================================
+
+export interface PinnerDistribution {
+  pinner: PublicKey;
+  weight: number;
+}
+
+export interface PeerPerformanceReport {
+  peerWallet: PublicKey;
+  peerId?: string;
+  bytesDelivered: number;
+  blocksDelivered?: number;
+  latencyMs: number;
+  throughputMBps?: number;
+  successful: boolean;
+  startTime?: Date;
+  endTime?: Date;
+  errors?: string[];
+}
+
+export interface EscrowReleaseResult {
+  transaction: string;
+  amountReleased: BN;
+  recipientCount: number;
+  trustScoresUpdated: boolean;
+}
+
+// ============================================================================
+// NEW: Staking Types
+// ============================================================================
+
+export interface StakingPoolInfo {
+  collection: PublicKey;
+  totalStaked: BN;
+  rewardRate: BN;
+  lastUpdateTime: BN;
+  rewardPerTokenStored: BN;
+  totalStakers: number;
+  apy?: number;
+}
+
+export interface StakerPositionInfo {
+  staker: PublicKey;
+  pool: PublicKey;
+  stakedAmount: BN;
+  rewardPerTokenPaid: BN;
+  rewardsEarned: BN;
+  stakedAt: BN;
+  pendingRewards?: BN;
+}
+
+export interface StakeResult {
+  transaction: string;
+  stakerPosition: PublicKey;
+  amountStaked: BN;
+  newTotalStaked: BN;
+}
+
+export interface UnstakeResult {
+  transaction: string;
+  amountUnstaked: BN;
+  rewardsClaimed: BN;
+  positionClosed: boolean;
+}
+
+export interface ClaimResult {
+  transaction: string;
+  rewardsClaimed: BN;
+}
+
+// ============================================================================
+// NEW: Moderation Types
+// ============================================================================
+
+export interface OffChainProof {
+  originalUploadUrl?: string;
+  socialMediaProfile?: string;
+  timestampProof?: string;
+  additionalEvidence?: string[];
+  description: string;
+}
+
+export interface CopyrightClaim {
+  collection: PublicKey;
+  claimant: PublicKey;
+  proofHash: Uint8Array;
+  submittedAt: BN;
+  status: "pending" | "approved" | "rejected";
+  moderator?: PublicKey;
+  resolvedAt?: BN;
+}
+
+export interface ContentReport {
+  collection: PublicKey;
+  reporter: PublicKey;
+  reason: string;
+  category: "illegal" | "copyright" | "tos_violation" | "spam";
+  submittedAt: BN;
+  status: "pending" | "approved" | "rejected";
+  moderator?: PublicKey;
+}
+
+export interface ClaimSubmissionResult {
+  transaction: string;
+  claimPDA: PublicKey;
+  proofHash: Uint8Array;
+}
+
+// ============================================================================
+// NEW: IPFS Trust Monitor Types
+// ============================================================================
+
+export interface DownloadProgress {
+  totalBytes: number;
+  downloadedBytes: number;
+  percentage: number;
+  peerContributions: Map<string, number>;
+  startTime: Date;
+  elapsedMs: number;
+}
+
+export interface ProofOfDelivery {
+  cid: string;
+  totalBytes: number;
+  downloadDurationMs: number;
+  peerReports: PeerPerformanceReport[];
+  pinners: PublicKey[];
+  weights: number[];
+  timestamp: Date;
+}
+
+export interface PeerMapping {
+  peerId: string;
+  walletAddress: PublicKey;
+  multiaddr?: string;
+}
+
+// ============================================================================
 // IPFS & Collection Types
 // ============================================================================
 
+/**
+ * Collection Manifest - The master catalog stored on IPFS
+ * 
+ * This document contains the complete catalog of all videos in a collection.
+ * The CID of this manifest is hashed (SHA-256) and stored on-chain in CollectionState.
+ * Only after purchasing access is the real CID revealed to the buyer.
+ * 
+ * Schema Version: 1.0
+ */
 export interface CollectionManifest {
+  /** Protocol schema version for forward compatibility */
+  schema_version: number;
+  
+  /** Unique collection identifier (matches on-chain collectionId) */
   collection_id: string;
-  version: number;
-  created_at: string; // ISO 8601
+  
+  /** Human-readable collection name */
+  name: string;
+  
+  /** Collection description/bio */
+  description?: string;
+  
+  /** Creator/performer information */
+  creator: CreatorMetadata;
+  
+  /** ISO 8601 timestamp of manifest creation */
+  created_at: string;
+  
+  /** ISO 8601 timestamp of last manifest update */
+  updated_at?: string;
+  
+  /** Total number of videos in collection */
+  total_videos: number;
+  
+  /** Total duration of all videos in seconds */
+  total_duration_seconds: number;
+  
+  /** Array of video entries with full metadata */
   videos: VideoMetadata[];
+  
+  /** Collection-level tags/categories */
+  tags?: string[];
+  
+  /** Cover image CID for collection */
+  cover_image_cid?: string;
+  
+  /** Trailer/preview video CID (accessible without purchase) */
+  preview_cid?: string;
+  
+  /** Content rating (e.g., "explicit", "adult") */
+  content_rating: ContentRating;
+  
+  /** Additional custom metadata */
+  custom_metadata?: Record<string, any>;
 }
 
-export interface VideoMetadata {
-  title: string;
-  description?: string;
-  cid: string; // IPFS CID of the video file
-  duration: number; // Seconds
-  thumbnail_cid?: string;
-  tags?: string[];
-  created_at?: string;
+/**
+ * Creator/Performer metadata
+ */
+export interface CreatorMetadata {
+  /** On-chain wallet address */
+  wallet_address?: string;
+  
+  /** Stage name/username */
+  username: string;
+  
+  /** Display name */
+  display_name?: string;
+  
+  /** Creator bio */
+  bio?: string;
+  
+  /** Profile picture CID */
+  avatar_cid?: string;
+  
+  /** Social media links */
+  social_links?: {
+    twitter?: string;
+    instagram?: string;
+    onlyfans?: string;
+    website?: string;
+    [key: string]: string | undefined;
+  };
+  
+  /** Verification status */
+  verified?: boolean;
 }
+
+/**
+ * Individual video metadata within a collection
+ */
+export interface VideoMetadata {
+  /** Unique identifier within the collection */
+  video_id: string;
+  
+  /** Video title */
+  title: string;
+  
+  /** Video description */
+  description?: string;
+  
+  /** IPFS CID of the video file */
+  cid: string;
+  
+  /** Duration in seconds */
+  duration_seconds: number;
+  
+  /** ISO 8601 timestamp of when video was recorded */
+  recorded_at: string;
+  
+  /** ISO 8601 timestamp of when video was uploaded */
+  uploaded_at?: string;
+  
+  /** Performer username (stage name) */
+  performer_username: string;
+  
+  /** Additional performers if applicable */
+  additional_performers?: string[];
+  
+  /** Video technical specifications */
+  technical_specs: VideoTechnicalSpecs;
+  
+  /** Thumbnail image CID */
+  thumbnail_cid?: string;
+  
+  /** Preview clip CID (short sample) */
+  preview_clip_cid?: string;
+  
+  /** Video-specific tags */
+  tags?: string[];
+  
+  /** Content warnings */
+  content_warnings?: string[];
+  
+  /** File size in bytes */
+  file_size_bytes?: number;
+  
+  /** File format (e.g., "mp4", "webm") */
+  file_format?: string;
+  
+  /** Custom metadata for this video */
+  custom_metadata?: Record<string, any>;
+}
+
+/**
+ * Video technical specifications
+ */
+export interface VideoTechnicalSpecs {
+  /** Video resolution (e.g., "1920x1080", "3840x2160") */
+  resolution: VideoResolution;
+  
+  /** Frame rate (e.g., 30, 60) */
+  fps?: number;
+  
+  /** Video codec (e.g., "h264", "h265", "vp9") */
+  codec?: string;
+  
+  /** Bitrate in kbps */
+  bitrate_kbps?: number;
+  
+  /** Is this a VR/360 video? */
+  is_vr: boolean;
+  
+  /** VR format if applicable */
+  vr_format?: VRFormat;
+  
+  /** Stereo mode for VR */
+  vr_stereo_mode?: VRStereoMode;
+  
+  /** Audio codec */
+  audio_codec?: string;
+  
+  /** Audio bitrate in kbps */
+  audio_bitrate_kbps?: number;
+  
+  /** HDR support */
+  hdr?: boolean;
+}
+
+/**
+ * Standard video resolutions
+ */
+export type VideoResolution =
+  | "720x480"    // SD
+  | "1280x720"   // HD / 720p
+  | "1920x1080"  // Full HD / 1080p
+  | "2560x1440"  // QHD / 1440p
+  | "3840x2160"  // 4K / UHD
+  | "7680x4320"  // 8K
+  | string;      // Custom resolution
+
+/**
+ * VR video formats
+ */
+export type VRFormat =
+  | "equirectangular"  // 360° video
+  | "cubemap"          // 6-face cube mapping
+  | "dome"             // 180° dome
+  | "fisheye"          // Fisheye lens
+  | string;            // Custom format
+
+/**
+ * VR stereo modes
+ */
+export type VRStereoMode =
+  | "mono"             // Single view
+  | "side-by-side"     // Left/right eye side by side
+  | "top-bottom"       // Left/right eye stacked
+  | "anaglyph"         // Red/cyan 3D
+  | string;            // Custom mode
+
+/**
+ * Content rating system
+ */
+export type ContentRating =
+  | "explicit"         // Adult/sexual content
+  | "mature"           // Mature themes
+  | "general"          // General audiences
+  | string;            // Custom rating
 
 // ============================================================================
 // Client Library Types

@@ -15,8 +15,34 @@ export { IndexerClient } from "./libs/IndexerClient";
 export { AccessClient } from "./libs/AccessClient";
 export { PinnerClient } from "./libs/PinnerClient";
 
+// NEW: Economic clients
+export { EscrowClient } from "./libs/EscrowClient";
+export { StakingClient } from "./libs/StakingClient";
+
+// NEW: Moderation client
+export { ModerationClient } from "./libs/ModerationClient";
+
+// NEW: Infrastructure clients
+export { IPFSTrustMonitor } from "./libs/IPFSTrustMonitor";
+
 // Crypto utilities
 export * from "./libs/CryptoUtils";
+
+// NEW: Collection Manifest utilities
+export {
+  CollectionManifestBuilder,
+  VideoMetadataBuilder,
+  createStandardVideoSpecs,
+  createVRVideoSpecs,
+  validateCollectionManifest,
+  parseCollectionManifest,
+  hashCollectionManifest,
+  verifyManifestHash,
+  MANIFEST_SCHEMA_VERSION,
+} from "./libs/CollectionManifestBuilder";
+
+// NEW: PDA utilities
+export { PDAUtils } from "./libs/PDAUtils";
 
 // Types
 export * from "./libs/types";

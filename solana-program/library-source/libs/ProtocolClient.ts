@@ -56,7 +56,7 @@ export class ProtocolClient {
   /**
    * Checks USD value of holdings and mints/renews access.
    */
-  async buyAccessToken(collectionId: string, ownerPubkey: PublicKey) {
+  async buyAccessToken(collectionId: string, ownerPubkey: PublicKey): Promise<string> {
     const user = this.walletManager.getPublicKey();
     
     // Derive Collection State
@@ -72,15 +72,22 @@ export class ProtocolClient {
     );
 
     // Fetch collection to get Mint address and Oracle feed
-    // const colAccount = await this.program.account.collectionState.fetch(collectionStatePda);
+    const colAccount = await this.program.account.collectionState.fetch(collectionStatePda);
+
+    // Derive buyer's token account
+    const { getAssociatedTokenAddress } = await import("@solana/spl-token");
+    const buyerTokenAccount = await getAssociatedTokenAddress(
+      colAccount.mint,
+      user
+    );
 
     const tx = await this.program.methods
       .buyAccessToken()
       .accounts({
         payer: user,
         collection: collectionStatePda,
-        buyerTokenAccount: PublicKey.default, // TODO: Derive actual token account
-        oracleFeed: PublicKey.default, // TODO: Get from collection state
+        buyerTokenAccount,
+        oracleFeed: colAccount.oracleFeed || PublicKey.default, // Use oracle from collection state
         viewRights: viewRightsPda,
       })
       .transaction();

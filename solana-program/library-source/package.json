@@ -29,7 +29,10 @@
     "@orca-so/whirlpools-sdk": "^0.13.0",
     "@orca-so/common-sdk": "^0.6.0",
     "tweetnacl": "^1.0.3",
-    "ed2curve": "^0.3.0"
+    "ed2curve": "^0.3.0",
+    "ipfs-http-client": "^60.0.0",
+    "axios": "^1.6.0",
+    "decimal.js": "^10.4.3"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

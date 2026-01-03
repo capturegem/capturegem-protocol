@@ -9,30 +9,29 @@
 import { PublicKey, Keypair } from "@solana/web3.js";
 import * as nacl from "tweetnacl";
 import { createHash } from "crypto";
+import { convertPublicKey, convertSecretKey } from "ed2curve";
 
 /**
  * Convert Ed25519 public key to X25519 for encryption
  * Solana wallets use Ed25519 for signing, but we need X25519 for NaCl box encryption
  */
 export function ed25519PublicKeyToX25519(ed25519PublicKey: Uint8Array): Uint8Array {
-  // This requires the ed25519-to-curve25519 library for proper conversion
-  // For now, we'll use a placeholder - in production, use: ed2curve.convertPublicKey(ed25519PublicKey)
-  // Install: npm install ed2curve
-  
-  // Temporary implementation - replace with proper ed2curve conversion
-  console.warn("Using simplified key conversion - replace with ed2curve in production");
-  return ed25519PublicKey;
+  const x25519Key = convertPublicKey(ed25519PublicKey);
+  if (!x25519Key) {
+    throw new Error("Failed to convert Ed25519 public key to X25519");
+  }
+  return x25519Key;
 }
 
 /**
  * Convert Ed25519 secret key to X25519 for encryption
  */
 export function ed25519SecretKeyToX25519(ed25519SecretKey: Uint8Array): Uint8Array {
-  // This requires the ed25519-to-curve25519 library for proper conversion
-  // For now, we'll use a placeholder - in production, use: ed2curve.convertSecretKey(ed25519SecretKey)
-  
-  console.warn("Using simplified key conversion - replace with ed2curve in production");
-  return ed25519SecretKey.slice(0, 32);
+  const x25519Key = convertSecretKey(ed25519SecretKey);
+  if (!x25519Key) {
+    throw new Error("Failed to convert Ed25519 secret key to X25519");
+  }
+  return x25519Key;
 }
 
 /**
