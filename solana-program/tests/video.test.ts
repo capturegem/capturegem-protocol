@@ -7,6 +7,7 @@ import {
   performer,
   setupAccounts,
   getCollectionPDA,
+  getMintPDA,
   getVideoPDA,
   oracleFeed,
 } from "./helpers/setup";
@@ -32,7 +33,7 @@ describe("Video Upload", () => {
     const { COLLECTION_NAME, CONTENT_CID, ACCESS_THRESHOLD_USD } = await import("./helpers/constants");
     
     [collectionPDA] = getCollectionPDA(user.publicKey, COLLECTION_ID);
-    const mint = Keypair.generate();
+    const [mintPDA] = getMintPDA(collectionPDA);
     
     // Check if collection exists, if not create it
     try {
@@ -51,7 +52,7 @@ describe("Video Upload", () => {
           owner: user.publicKey,
           collection: collectionPDA,
           oracleFeed: oracleFeed.publicKey,
-          mint: mint.publicKey,
+          mint: mintPDA,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           rent: SYSVAR_RENT_PUBKEY,

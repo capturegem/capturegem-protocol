@@ -8,6 +8,7 @@ import {
   setupAccounts,
   getUserAccountPDA,
   getCollectionPDA,
+  getMintPDA,
   provider,
 } from "./helpers/setup";
 import {
@@ -110,9 +111,7 @@ describe("User Account & Collection", () => {
 
     it("Successfully creates collection", async () => {
       const [collectionPDA] = getCollectionPDA(user.publicKey, COLLECTION_ID);
-      const mint = Keypair.generate();
-      const { airdropAndConfirm } = await import("./helpers/setup");
-      await airdropAndConfirm(mint.publicKey);
+      const [mintPDA] = getMintPDA(collectionPDA);
 
       const tx = await program.methods
         .createCollection(
@@ -126,7 +125,7 @@ describe("User Account & Collection", () => {
           owner: user.publicKey,
           collection: collectionPDA,
           oracleFeed: oracleFeed.publicKey,
-          mint: mint.publicKey,
+          mint: mintPDA,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           rent: SYSVAR_RENT_PUBKEY,
@@ -150,7 +149,7 @@ describe("User Account & Collection", () => {
 
     it("Fails if max_video_limit is 0", async () => {
       const [collectionPDA] = getCollectionPDA(user.publicKey, "invalid-collection");
-      const mint = Keypair.generate();
+      const [mintPDA] = getMintPDA(collectionPDA);
 
       try {
         await program.methods
@@ -165,10 +164,9 @@ describe("User Account & Collection", () => {
             owner: user.publicKey,
             collection: collectionPDA,
             oracleFeed: oracleFeed.publicKey,
-            mint: mint.publicKey,
+            mint: mintPDA,
             tokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
-            rent: SYSVAR_RENT_PUBKEY,
           })
           .signers([user])
           .rpc();
@@ -183,7 +181,7 @@ describe("User Account & Collection", () => {
     it("Fails if collection_id exceeds MAX_ID_LEN", async () => {
       const longId = "a".repeat(33); // MAX_ID_LEN is 32
       const [collectionPDA] = getCollectionPDA(user.publicKey, longId);
-      const mint = Keypair.generate();
+      const [mintPDA] = getMintPDA(collectionPDA);
 
       try {
         await program.methods
@@ -198,10 +196,9 @@ describe("User Account & Collection", () => {
             owner: user.publicKey,
             collection: collectionPDA,
             oracleFeed: oracleFeed.publicKey,
-            mint: mint.publicKey,
+            mint: mintPDA,
             tokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
-            rent: SYSVAR_RENT_PUBKEY,
           })
           .signers([user])
           .rpc();
@@ -216,7 +213,7 @@ describe("User Account & Collection", () => {
     it("Fails if name exceeds MAX_NAME_LEN", async () => {
       const longName = "a".repeat(51); // MAX_NAME_LEN is 50
       const [collectionPDA] = getCollectionPDA(user.publicKey, "test-collection-2");
-      const mint = Keypair.generate();
+      const [mintPDA] = getMintPDA(collectionPDA);
 
       try {
         await program.methods
@@ -231,10 +228,9 @@ describe("User Account & Collection", () => {
             owner: user.publicKey,
             collection: collectionPDA,
             oracleFeed: oracleFeed.publicKey,
-            mint: mint.publicKey,
+            mint: mintPDA,
             tokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
-            rent: SYSVAR_RENT_PUBKEY,
           })
           .signers([user])
           .rpc();
@@ -249,7 +245,7 @@ describe("User Account & Collection", () => {
     it("Fails if content_cid exceeds MAX_URL_LEN", async () => {
       const longCid = "a".repeat(201); // MAX_URL_LEN is 200
       const [collectionPDA] = getCollectionPDA(user.publicKey, "test-collection-3");
-      const mint = Keypair.generate();
+      const [mintPDA] = getMintPDA(collectionPDA);
 
       try {
         await program.methods
@@ -264,10 +260,9 @@ describe("User Account & Collection", () => {
             owner: user.publicKey,
             collection: collectionPDA,
             oracleFeed: oracleFeed.publicKey,
-            mint: mint.publicKey,
+            mint: mintPDA,
             tokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
-            rent: SYSVAR_RENT_PUBKEY,
           })
           .signers([user])
           .rpc();

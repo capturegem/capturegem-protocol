@@ -7,6 +7,7 @@ import {
   oracleFeed,
   setupAccounts,
   getCollectionPDA,
+  getMintPDA,
   getViewRightsPDA,
 } from "./helpers/setup";
 import { COLLECTION_ID } from "./helpers/constants";
@@ -28,11 +29,14 @@ describe("Buy Access Token", () => {
     const { COLLECTION_NAME, CONTENT_CID, ACCESS_THRESHOLD_USD, MAX_VIDEO_LIMIT } = await import("./helpers/constants");
     
     [collectionPDA] = getCollectionPDA(user.publicKey, COLLECTION_ID);
-    mint = Keypair.generate();
+    const [mintPDA] = getMintPDA(collectionPDA);
     
     // Check if collection exists, if not create it
     try {
       await program.account.collectionState.fetch(collectionPDA);
+      // Get the actual mint from the collection
+      const collection = await program.account.collectionState.fetch(collectionPDA);
+      mint = collection.mint;
     } catch {
       // Collection doesn't exist, create it
       await program.methods
@@ -47,18 +51,16 @@ describe("Buy Access Token", () => {
           owner: user.publicKey,
           collection: collectionPDA,
           oracleFeed: oracleFeed.publicKey,
-          mint: mint.publicKey,
+          mint: mintPDA,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           rent: SYSVAR_RENT_PUBKEY,
         })
         .signers([user])
         .rpc();
+      
+      mint = mintPDA;
     }
-    
-    // Get the actual mint from the collection
-    const collection = await program.account.collectionState.fetch(collectionPDA);
-    mint = collection.mint;
   });
 
   it("Fails if user has insufficient token balance", async () => {

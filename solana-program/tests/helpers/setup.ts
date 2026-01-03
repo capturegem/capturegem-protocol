@@ -63,6 +63,13 @@ export const getCollectionPDA = (owner: PublicKey, collectionId: string): [Publi
   );
 };
 
+export const getMintPDA = (collection: PublicKey): [PublicKey, number] => {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("mint"), collection.toBuffer()],
+    program.programId
+  );
+};
+
 export const getViewRightsPDA = (payer: PublicKey, collection: PublicKey): [PublicKey, number] => {
   return PublicKey.findProgramAddressSync(
     [Buffer.from("view_right"), payer.toBuffer(), collection.toBuffer()],

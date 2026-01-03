@@ -6,6 +6,7 @@ import {
   user,
   setupAccounts,
   getCollectionPDA,
+  getMintPDA,
   getPerformerEscrowPDA,
   getGlobalStatePDA,
 } from "./helpers/setup";
@@ -34,7 +35,7 @@ describe("Treasury - Fee Harvesting", () => {
     try {
       await program.account.collectionState.fetch(collectionPDA);
     } catch {
-      const mint = Keypair.generate();
+      const [mintPDA] = getMintPDA(collectionPDA);
       
       await program.methods
         .createCollection(
@@ -48,7 +49,7 @@ describe("Treasury - Fee Harvesting", () => {
           owner: user.publicKey,
           collection: collectionPDA,
           oracleFeed: oracleFeed.publicKey,
-          mint: mint.publicKey,
+          mint: mintPDA,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           rent: SYSVAR_RENT_PUBKEY,

@@ -15,6 +15,7 @@ import {
   getGlobalStatePDA,
   getUserAccountPDA,
   getCollectionPDA,
+  getMintPDA,
   getVideoPDA,
   getPinnerStatePDA,
   getModTicketPDA,
@@ -82,7 +83,7 @@ describe("Integration Tests", () => {
       // 3. Create collection (use unique ID to avoid conflicts)
       const uniqueCollectionId = `collection-${Date.now()}`;
       const [collectionPDA] = getCollectionPDA(user.publicKey, uniqueCollectionId);
-      const mint = Keypair.generate();
+      const [mintPDA] = getMintPDA(collectionPDA);
       
       await program.methods
         .createCollection(
@@ -96,7 +97,7 @@ describe("Integration Tests", () => {
           owner: user.publicKey,
           collection: collectionPDA,
           oracleFeed: oracleFeed.publicKey,
-          mint: mint.publicKey,
+          mint: mintPDA,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           rent: SYSVAR_RENT_PUBKEY,
@@ -137,9 +138,7 @@ describe("Integration Tests", () => {
       try {
         await program.account.collectionState.fetch(collectionPDA);
       } catch {
-        const mint = Keypair.generate();
-        const { airdropAndConfirm } = await import("./helpers/setup");
-        await airdropAndConfirm(mint.publicKey);
+        const [mintPDA] = getMintPDA(collectionPDA);
         
         await program.methods
           .createCollection(
@@ -153,10 +152,9 @@ describe("Integration Tests", () => {
             owner: user.publicKey,
             collection: collectionPDA,
             oracleFeed: oracleFeed.publicKey,
-            mint: mint.publicKey,
+            mint: mintPDA,
             tokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
-            rent: SYSVAR_RENT_PUBKEY,
           })
           .signers([user])
           .rpc();
@@ -284,8 +282,8 @@ describe("Integration Tests", () => {
       const uniqueId2 = `collection-2-${Date.now()}`;
       const [collection1PDA] = getCollectionPDA(user.publicKey, uniqueId1);
       const [collection2PDA] = getCollectionPDA(user.publicKey, uniqueId2);
-      const mint1 = Keypair.generate();
-      const mint2 = Keypair.generate();
+      const [mint1PDA] = getMintPDA(collection1PDA);
+      const [mint2PDA] = getMintPDA(collection2PDA);
 
       await program.methods
         .createCollection(
@@ -299,12 +297,11 @@ describe("Integration Tests", () => {
           owner: user.publicKey,
           collection: collection1PDA,
           oracleFeed: oracleFeed.publicKey,
-          mint: mint1.publicKey,
+          mint: mint1PDA,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
-          rent: SYSVAR_RENT_PUBKEY,
         })
-        .signers([user, mint1])
+        .signers([user])
         .rpc();
 
       await program.methods
@@ -319,10 +316,9 @@ describe("Integration Tests", () => {
           owner: user.publicKey,
           collection: collection2PDA,
           oracleFeed: oracleFeed.publicKey,
-          mint: mint2.publicKey,
+          mint: mint2PDA,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
-          rent: SYSVAR_RENT_PUBKEY,
         })
         .signers([user])
         .rpc();
@@ -344,9 +340,7 @@ describe("Integration Tests", () => {
       try {
         await program.account.collectionState.fetch(collectionPDA);
       } catch {
-        const mint = Keypair.generate();
-        const { airdropAndConfirm } = await import("./helpers/setup");
-        await airdropAndConfirm(mint.publicKey);
+        const [mintPDA] = getMintPDA(collectionPDA);
         
         await program.methods
           .createCollection(
@@ -360,10 +354,9 @@ describe("Integration Tests", () => {
             owner: user.publicKey,
             collection: collectionPDA,
             oracleFeed: oracleFeed.publicKey,
-            mint: mint.publicKey,
+            mint: mintPDA,
             tokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
-            rent: SYSVAR_RENT_PUBKEY,
           })
           .signers([user])
           .rpc();
