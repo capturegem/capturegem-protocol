@@ -55,34 +55,40 @@ async function example1_CreatorPublishingFlow() {
   // Step 1: Create collection manifest
   console.log("\n📋 Creating collection manifest...");
   
-  const manifest = new CollectionManifestBuilder("my-premium-collection-2024")
-    .setTitle("Premium Dance Collection")
+  const manifest = new CollectionManifestBuilder("my-premium-collection-2024", "Premium Dance Collection")
     .setDescription("Exclusive dance performances from top creators")
-    .setCategory("dance")
-    .setCreatorName("DanceStudio Pro")
+    .setCreator({
+      username: "DanceStudio Pro",
+      display_name: "DanceStudio Pro",
+    })
+    .setContentRating("explicit")
+    .setTags(["dance", "premium"])
     .addVideo(
-      new VideoMetadataBuilder()
-        .setTitle("Contemporary Flow")
+      new VideoMetadataBuilder("video-1", "Contemporary Flow", "QmVideo1080p...")
+        .setDescription("A beautiful contemporary dance performance")
         .setDuration(180) // 3 minutes
-        .setThumbnailCID("QmThumbnail123...")
-        .addRendition("1080p", "QmVideo1080p...")
-        .addRendition("720p", "QmVideo720p...")
-        .addRendition("480p", "QmVideo480p...")
-        .addTag("contemporary")
-        .addTag("solo")
-        .setAccessLevel("premium")
+        .setRecordedAt(new Date())
+        .setPerformer("DanceStudio Pro")
+        .setTechnicalSpecs({
+          resolution: "1920x1080",
+          is_vr: false,
+        })
+        .setThumbnail("QmThumbnail123...")
+        .setTags(["contemporary", "solo"])
         .build()
     )
     .addVideo(
-      new VideoMetadataBuilder()
-        .setTitle("Hip Hop Freestyle")
+      new VideoMetadataBuilder("video-2", "Hip Hop Freestyle", "QmVideoHipHop1080p...")
+        .setDescription("An energetic hip hop freestyle")
         .setDuration(240) // 4 minutes
-        .setThumbnailCID("QmThumbnail456...")
-        .addRendition("1080p", "QmVideoHipHop1080p...")
-        .addRendition("720p", "QmVideoHipHop720p...")
-        .addTag("hiphop")
-        .addTag("freestyle")
-        .setAccessLevel("premium")
+        .setRecordedAt(new Date())
+        .setPerformer("DanceStudio Pro")
+        .setTechnicalSpecs({
+          resolution: "1920x1080",
+          is_vr: false,
+        })
+        .setThumbnail("QmThumbnail456...")
+        .setTags(["hiphop", "freestyle"])
         .build()
     )
     .build();
@@ -91,8 +97,8 @@ async function example1_CreatorPublishingFlow() {
 
   // Step 2: Upload manifest to IPFS
   console.log("\n📤 Uploading manifest to IPFS...");
-  const ipfsManager = new IpfsManager(IPFS_GATEWAY);
-  const manifestCID = await ipfsManager.uploadJSON(manifest);
+  const ipfsManager = new IpfsManager();
+  const manifestCID = await ipfsManager.uploadMetadata(manifest);
   console.log(`   ✅ Manifest CID: ${manifestCID}`);
 
   // Step 3: Publish collection with Orca pool

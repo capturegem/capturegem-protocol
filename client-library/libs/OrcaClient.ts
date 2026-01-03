@@ -791,7 +791,7 @@ export class OrcaClient {
       ...params,
     });
 
-    return await this.walletManager.signTransaction(
+    return await this.walletManager.signAndSendTransaction(
       tx,
       RiskLevel.HIGH
     );
@@ -822,7 +822,7 @@ export class OrcaClient {
     // Sign transaction with position mint as additional signer
     transaction.partialSign(positionMint);
     
-    const signature = await this.walletManager.signTransaction(
+    const signature = await this.walletManager.signAndSendTransaction(
       transaction,
       RiskLevel.HIGH
     );
@@ -857,7 +857,7 @@ export class OrcaClient {
       ...params,
     });
 
-    return await this.walletManager.signTransaction(
+    return await this.walletManager.signAndSendTransaction(
       tx,
       RiskLevel.HIGH
     );

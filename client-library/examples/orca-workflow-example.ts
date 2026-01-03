@@ -38,7 +38,8 @@ async function main() {
   const programId = new PublicKey("YOUR_PROGRAM_ID");
   const idl = await anchor.Program.fetchIdl(programId, provider);
   if (!idl) throw new Error("IDL not found");
-  const program = new anchor.Program(idl, programId, provider);
+  // @ts-expect-error - Program constructor type inference issue with fetchIdl return type
+  const program = new anchor.Program(idl as any, programId, provider);
 
   // Initialize clients
   // Create WalletManager with connection

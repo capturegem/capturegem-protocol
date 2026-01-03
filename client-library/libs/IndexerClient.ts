@@ -348,5 +348,210 @@ export class IndexerClient {
       return null;
     }
   }
+
+  /**
+   * Get pending CID censorship tickets (moderator view)
+   * 
+   * @param moderatorToken - Authentication token for moderators
+   * @returns Array of pending CID censorship tickets
+   */
+  public async getPendingCidCensorships(moderatorToken: string): Promise<any[]> {
+    try {
+      const response = await this.api.get("/moderation/censorship/pending", {
+        headers: { Authorization: `Bearer ${moderatorToken}` }
+      });
+      return response.data;
+    } catch (error) {
+      console.error("Failed to fetch pending CID censorships:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Get pending performer claim tickets (moderator view)
+   * 
+   * @param moderatorToken - Authentication token for moderators
+   * @returns Array of pending performer claims
+   */
+  public async getPendingPerformerClaims(moderatorToken: string): Promise<any[]> {
+    try {
+      const response = await this.api.get("/moderation/performer-claims/pending", {
+        headers: { Authorization: `Bearer ${moderatorToken}` }
+      });
+      return response.data;
+    } catch (error) {
+      console.error("Failed to fetch pending performer claims:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Get censored CIDs for a collection
+   * Returns list of CIDs that have been censored by moderators
+   * 
+   * @param collectionId - Collection identifier
+   * @returns Array of censored CID information
+   */
+  public async getCensoredCids(collectionId: string): Promise<Array<{
+    cid: string;
+    censoredAt: string;
+    moderator: string;
+    reason: string;
+  }>> {
+    try {
+      const response = await this.api.get(`/collections/${collectionId}/censored-cids`);
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to fetch censored CIDs for ${collectionId}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Check if a specific CID is censored
+   * 
+   * @param cid - IPFS CID to check
+   * @returns true if CID is censored
+   */
+  public async isCidCensored(cid: string): Promise<boolean> {
+    try {
+      const response = await this.api.get(`/cids/${cid}/censored`);
+      return response.data.censored === true;
+    } catch (error) {
+      console.error(`Failed to check censorship status for CID ${cid}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Get moderator leaderboard
+   * Returns list of moderators sorted by successful resolutions
+   * 
+   * @param limit - Number of moderators to return (default: 20)
+   * @returns Array of moderator statistics
+   */
+  public async getModeratorLeaderboard(limit: number = 20): Promise<Array<{
+    moderator: string;
+    stakeAmount: string;
+    resolutionCount: number;
+    accuracyRate: number;
+    isActive: boolean;
+  }>> {
+    try {
+      const response = await this.api.get("/moderation/leaderboard", {
+        params: { limit }
+      });
+      return response.data;
+    } catch (error) {
+      console.error("Failed to fetch moderator leaderboard:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Get all tickets for a specific moderator
+   * 
+   * @param moderatorPubkey - Moderator's wallet address
+   * @param moderatorToken - Authentication token
+   * @returns Array of tickets resolved by this moderator
+   */
+  public async getModeratorTickets(
+    moderatorPubkey: string,
+    moderatorToken: string
+  ): Promise<any[]> {
+    try {
+      const response = await this.api.get(`/moderators/${moderatorPubkey}/tickets`, {
+        headers: { Authorization: `Bearer ${moderatorToken}` }
+      });
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to fetch tickets for moderator ${moderatorPubkey}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Get moderator statistics
+   * 
+   * @param moderatorPubkey - Moderator's wallet address
+   * @returns Moderator performance statistics
+   */
+  public async getModeratorStats(moderatorPubkey: string): Promise<{
+    stakeAmount: string;
+    totalResolutions: number;
+    accuracyRate: number;
+    slashCount: number;
+    isActive: boolean;
+  } | null> {
+    try {
+      const response = await this.api.get(`/moderators/${moderatorPubkey}/stats`);
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to fetch moderator stats for ${moderatorPubkey}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Get ticket history for a collection
+   * Returns all moderation tickets (reports, claims, censorship) for a collection
+   * 
+   * @param collectionId - Collection identifier
+   * @returns Array of tickets
+   */
+  public async getCollectionTickets(collectionId: string): Promise<any[]> {
+    try {
+      const response = await this.api.get(`/collections/${collectionId}/tickets`);
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to fetch tickets for collection ${collectionId}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Search for copyright claims by claimant
+   * 
+   * @param claimantPubkey - Claimant's wallet address
+   * @returns Array of copyright claims
+   */
+  public async getClaimsByClaimant(claimantPubkey: string): Promise<any[]> {
+    try {
+      const response = await this.api.get(`/claims/by-claimant/${claimantPubkey}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to fetch claims for claimant ${claimantPubkey}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Get performer claim status for a collection
+   * 
+   * @param collectionId - Collection identifier
+   * @param performerPubkey - Performer's wallet address
+   * @returns Performer claim status
+   */
+  public async getPerformerClaimStatus(
+    collectionId: string,
+    performerPubkey: string
+  ): Promise<{
+    hasClaim: boolean;
+    status: "pending" | "approved" | "rejected" | null;
+    claimAmount: string | null;
+  } | null> {
+    try {
+      const response = await this.api.get(
+        `/collections/${collectionId}/performer-claim/${performerPubkey}`
+      );
+      return response.data;
+    } catch (error) {
+      console.error(
+        `Failed to fetch performer claim status for ${collectionId}:`,
+        error
+      );
+      return null;
+    }
+  }
 }
 
