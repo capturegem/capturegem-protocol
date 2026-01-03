@@ -1,6 +1,6 @@
 # Technical Design Document: CaptureGem Decentralized Protocol (CDP)
 
-**Version:** 1.1  
+**Version:** 1.3  
 **Date:** January 3, 2026  
 **Status:** Approved
 
@@ -8,7 +8,9 @@
 
 CaptureGem CDP is a decentralized application (DApp) designed to transform the adult video streaming landscape by allowing users to share, sell, and moderate video content directly on the Solana blockchain. Unlike legacy Web2 platforms that rely on centralized servers, opaque algorithms, and arbitrary de-platforming, CaptureGem utilizes a unique SocialFi model that aligns incentives between creators, consumers, and infrastructure providers.
 
-The protocol introduces a novel "Trust-Based Delivery" mechanism that fundamentally reimagines the relationship between payment and service. In this model, Content Collections are backed by liquid tokens traded on decentralized exchanges (Orca). When users purchase access, they create a purchase account on-chain containing only the SHA-256 hash of the collection's IPFS CID—the actual content address remains private. A pinner who hosts the collection then sends an encrypted message to the purchaser's wallet on-chain, containing the real CID encrypted with the purchaser's public key. The purchaser decrypts this using their private wallet key and verifies the hash matches their commitment, ensuring authenticity. The collection CID itself is a manifest document containing the CIDs of all individual videos, unlocking the entire collection with a single purchase.
+The protocol introduces a novel "Trust-Based Delivery" mechanism that fundamentally reimagines the relationship between payment and service. In this model, Content Collections are backed by liquid tokens traded on decentralized exchanges (Orca). When users purchase access, they create a purchase account on-chain containing only the SHA-256 hash of the collection's IPFS CID—the actual content address remains private. Simultaneously, an Access NFT is minted to the purchaser's wallet, serving as a cryptographic proof of ownership that pinners verify before serving content. This prevents unauthorized access at the peer-to-peer level, as IPFS nodes will reject connection requests from wallets that do not possess the valid Access NFT.
+
+A pinner who hosts the collection then sends an encrypted message to the purchaser's wallet on-chain, containing the real CID encrypted with the purchaser's public key. The purchaser decrypts this using their private wallet key and verifies the hash matches their commitment, ensuring authenticity. The collection CID itself is a manifest document containing the CIDs of all individual videos, unlocking the entire collection with a single purchase.
 
 The payment is split: 50% flows to a staking pool where collection token holders earn rewards, and 50% is held in escrow. This escrowed payment is only released to storage providers (IPFS Peers) once the purchaser's client confirms the content was successfully delivered—and critically, the buyer determines which peers deserve payment based on actual performance. If the buyer does not disburse funds within 24 hours, the escrowed tokens are automatically burned, creating deflationary pressure. This ensures a meritocratic network where high-performance nodes build on-chain Trust Scores, creating a feedback loop where quality service is algorithmically rewarded with higher earning potential.
 
@@ -65,7 +67,7 @@ The client is designed as a "Zero-Configuration" application acting as both a me
             └──────┬──────┘
                    │ 2. Buy Access (Swap CAPGM → Collection Tokens)
                    │    Commit: SHA256(CID) → AccessEscrow
-                   │    Expose: Purchaser PublicKey
+                   │    Mint: Access NFT → Purchaser Wallet
                    ▼
             ┌──────────────────────┐
             │  Purchase Split      │
@@ -79,7 +81,8 @@ The client is designed as a "Zero-Configuration" application acting as both a me
        │  Collection Token   │      │  Access Escrow PDA   │
        │   Staking Pool      │      │  • cid_hash          │
        │  (Rewards Stakers)  │      │  • purchaser_pubkey  │
-       └─────────────────────┘      │  • 24hr expiry       │
+       └─────────────────────┘      │  • access_nft_mint   │
+                                     │  • 24hr expiry       │
                                      └──────┬───────────────┘
                                             │
             ╔═══════════════════════════════╧════════════════════════════╗
@@ -120,14 +123,23 @@ The client is designed as a "Zero-Configuration" application acting as both a me
                           │  }                   │
                           └──────┬───────────────┘
                                  │
-                                 │ 5. Fetch Manifest → Extract Video CIDs
+                                 │ 5. Request Connection to IPFS Peers
+                                 ▼
+            ╔════════════════════════════════════════════════════════╗
+            ║ NFT-BASED ACCESS CONTROL (Peer-to-Peer Layer)         ║
+            ║ • Purchaser presents Access NFT to pinner              ║
+            ║ • Pinner verifies NFT ownership on-chain               ║
+            ║ • If valid → serve content; If invalid → reject       ║
+            ╚════════════════════╤═══════════════════════════════════╝
+                                 │
+                                 │ 6. Fetch Manifest → Extract Video CIDs
                                  ▼
                           ┌──────────────┐
                           │ IPFS Network │
                           │  (DHT Lookup │
                           │   + Bitswap) │
                           └──────┬───────┘
-                                 │ 6. Download Content (Track Peer Performance)
+                                 │ 7. Download Content (Track Peer Performance)
                                  ▼
                           ┌──────────────┐
                           │   Purchaser  │
@@ -135,7 +147,7 @@ The client is designed as a "Zero-Configuration" application acting as both a me
                           │  • Peer A: 500MB │
                           │  • Peer B: 200MB │
                           └──────┬───────┘
-                                 │ 7. Verify Peers & Choose Payment
+                                 │ 8. Verify Peers & Choose Payment
                                  │
            ┌─────────────────────┴─────────────────────┐
            │                                           │
@@ -144,7 +156,7 @@ The client is designed as a "Zero-Configuration" application acting as both a me
   │ Trust Client Logic   │                   │ Permissionless   │
   │ (Release to Peers)   │                   │  Burn Escrow     │
   └──────┬───────────────┘                   └──────┬───────────┘
-         │ 8a. Release Funds (50% Escrow)           │ 8b. Burn Tokens
+         │ 9a. Release Funds (50% Escrow)           │ 9b. Burn Tokens
          ▼                                          ▼
   ┌──────────────────┐                   ┌──────────────────┐
   │  Access Escrow   │                   │ Reduce Supply    │
@@ -162,7 +174,7 @@ The client is designed as a "Zero-Configuration" application acting as both a me
   └─────┬────┘ └─────┬────┘
         │            │
         └──────┬─────┘
-               │ 9. Update Trust Score (On-Chain Reputation)
+               │ 10. Update Trust Score (On-Chain Reputation)
                ▼
         ┌──────────────────┐
         │ PeerTrustState   │
@@ -190,6 +202,16 @@ The core logic resides in a custom Solana Program (Rust/Anchor), leveraging the 
   - **80% → Orca Liquidity Pool:** This portion is deposited into a concentrated liquidity position paired with CAPGM. This massive initial liquidity provision acts as a bonding curve, ensuring that early buyers have valid counterparties and that price discovery can happen organically without a pre-sale.
   - **10% → Creator Wallet:** The initial stake for the uploader. This aligns the creator's financial success with the collection's popularity. As the token price rises due to demand, the value of this 10% holding increases.
   - **10% → Claim Vault:** Held in a Program Derived Address (PDA) for a strict 6-month vesting period. This acts as an insurance policy against IP theft.
+
+- **Initial Liquidity Pairing Requirements:** When depositing 800,000 Collection Tokens (80% of supply) into the Orca pool, paired liquidity in CAPGM must be provided. The protocol requires the Creator to fund this initial liquidity pairing as a "Cost of Business."
+  - **Scenario:** For a collection minting 1,000,000 tokens, 800,000 tokens are allocated to the Orca pool. These tokens cannot be deposited alone; they must be paired with the quote currency (CAPGM).
+  - **Who Provides the CAPGM?**
+    - **Option A (Adopted):** The Creator must provide the initial CAPGM (approximately $50-$100 worth). This requirement serves multiple purposes:
+      - **Spam Prevention:** Creates an economic barrier to entry that prevents low-effort or spam collections from flooding the platform.
+      - **Skin in the Game:** Ensures creators have financial commitment to their content's success.
+      - **Market Signal:** Demonstrates the creator's confidence in their collection's value.
+    - **Option B (Rejected):** Protocol-lent CAPGM would introduce systemic risk and potential for abuse, as creators could abandon collections without financial consequence.
+  - **Economic Rationale:** This upfront cost is intentionally designed to be accessible for serious creators while prohibitive for spammers. The creator can recover this investment (and more) through the appreciation of their 10% token allocation and through staking rewards as their collection gains popularity.
 
 **C. The Claim Vault & Burn Mechanism**
 
@@ -219,12 +241,13 @@ struct CollectionState {
 
 **B. Access Escrow**
 
-A temporary holding account created when a user purchases access but hasn't finished downloading. This is the core component of the "Trust-Based" payment model. The escrow has a 24-hour expiration window, after which unclaimed funds are burned. Critically, the escrow stores only the SHA-256 hash of the collection CID—never the CID itself—ensuring that content addresses remain private until revealed by an authorized pinner.
+A temporary holding account created when a user purchases access but hasn't finished downloading. This is the core component of the "Trust-Based" payment model. The escrow has a 24-hour expiration window, after which unclaimed funds are burned. Critically, the escrow stores only the SHA-256 hash of the collection CID—never the CID itself—ensuring that content addresses remain private until revealed by an authorized pinner. Additionally, the escrow links to the Access NFT that serves as the cryptographic proof of purchase.
 
 ```rust
 struct AccessEscrow {
     purchaser: Pubkey,           // The user buying content (only they can release funds)
     collection: Pubkey,          // The content being bought
+    access_nft_mint: Pubkey,     // The NFT mint address proving access rights
     cid_hash: [u8; 32],          // SHA-256 hash of the collection CID (for verification)
     amount_locked: u64,          // Tokens bought from the pool (50% of purchase), waiting for release
     created_at: i64,             // Timestamp for 24-hour burn timeout logic
@@ -282,6 +305,89 @@ The protocol encrypts the *address* (CID), not the content itself, for efficienc
 - IPFS content is naturally deduplicated via content-addressing. Encrypting content would break deduplication.
 - Encrypting CIDs is computationally trivial (< 100 bytes), while encrypting video content would be expensive.
 - The CID acts as a "capability token"—knowing it grants access to fetch from any IPFS node.
+
+### 3.4 NFT-Based Access Control at the Peer-to-Peer Layer
+
+To prevent unauthorized access at the IPFS peer-to-peer level, the protocol mints a unique **Access NFT** for each purchase. This NFT serves as a cryptographic proof of ownership that pinners verify before serving content.
+
+**A. Access NFT Minting**
+
+When a user purchases access via the `purchase_access` instruction:
+1. A unique NFT mint is created using **Token-2022 (SPL Token Extensions)** with the **Non-Transferable extension** enabled.
+2. One (1) token is minted to the purchaser's wallet (non-divisible, supply = 1).
+3. The NFT mint address is stored in the `AccessEscrow` for reference.
+4. The NFT metadata includes (via Metaplex Token Metadata):
+   - `collection`: The collection ID this NFT grants access to
+   - `purchaser`: The wallet that owns access rights
+   - `purchased_at`: Timestamp of purchase
+5. **Critical Security Feature:** The Token-2022 Non-Transferable extension permanently prevents the NFT from being transferred, sold, or stolen. Once minted to the purchaser's wallet, it cannot be moved to any other wallet, ensuring access rights remain tied to the original buyer.
+
+**B. Pinner Verification Protocol**
+
+Before serving any content block via IPFS Bitswap, pinners perform on-chain verification:
+
+```
+HANDSHAKE PROTOCOL:
+1. Purchaser initiates IPFS connection to pinner's peer ID
+2. Purchaser sends signed message: {wallet_address, collection_id, nft_mint_address, timestamp, signature}
+3. Pinner verifies:
+   a. Signature is valid for the claimed wallet_address
+   b. NFT mint exists at nft_mint_address
+   c. NFT is owned by wallet_address (via on-chain query)
+   d. NFT metadata.collection matches the requested collection_id
+   e. Timestamp is recent (< 5 minutes, prevents replay attacks)
+4. If all checks pass → serve content
+5. If any check fails → reject connection and log unauthorized attempt
+```
+
+**C. On-Chain NFT Verification**
+
+Pinners query the Solana blockchain to verify NFT ownership:
+- **RPC Call**: `getTokenAccountsByOwner` filtered by NFT mint address
+- **Validation**: Ensure the purchaser's wallet holds exactly 1 token of the NFT mint
+- **Caching**: Verification results can be cached for ~30 seconds to reduce RPC load
+- **Fallback**: If RPC fails, pinners can accept connections but flag them for manual review
+
+**D. Security Properties**
+
+1. **Non-Transferable (Enforced)**: The NFT uses Token-2022's Non-Transferable extension, making it **impossible** to transfer, sell, or gift. This prevents:
+   - **Access Resale Markets:** Users cannot sell access to third parties.
+   - **Wallet Compromise:** Even if a wallet's private key is stolen, the NFT cannot be moved.
+   - **Sybil Attacks:** Each purchase is permanently bound to the original purchaser's wallet.
+   - The only way to "transfer" access is for the original purchaser to share their wallet's private key (which defeats the purpose and is easily detectable).
+2. **Wallet-Bound Access**: The NFT is permanently tied to the `AccessEscrow.purchaser` wallet. This wallet-binding is enforced both:
+   - **On-Chain:** Via Token-2022 program constraints (transfer instructions fail).
+   - **At Peer Layer:** Pinners verify NFT ownership matches the connecting wallet.
+3. **Expiration**: While NFTs have no inherent expiration, pinners can enforce time-based access by checking the `purchased_at` timestamp in the NFT metadata and refusing service after a configurable period (e.g., 90 days).
+4. **Revocation**: Moderators can burn NFTs for users who violate TOS via a special `revoke_access` instruction, immediately revoking their access across all pinners. The burn is possible because the protocol retains freeze authority over the mint.
+5. **Sybil Resistance**: Each purchase requires a swap on Orca (real economic cost), making it expensive to create fake access accounts.
+
+**E. Why NFTs Instead of Escrow-Only Verification?**
+
+While pinners could theoretically verify access by checking for an `AccessEscrow` account, NFTs provide several advantages:
+- **Persistent Proof**: Escrows expire/close after 24 hours, but NFTs remain as permanent receipts.
+- **Standard Interface**: NFTs use Token-2022 standards, allowing wallets and explorers to display access rights.
+- **True Non-Transferability**: Token-2022's Non-Transferable extension provides cryptographic enforcement that cannot be bypassed, unlike policy-based restrictions.
+- **Offline Verification**: Pinners can verify NFT ownership without querying custom PDA structures.
+- **Freeze & Burn Capability**: The protocol retains freeze/burn authority for moderation purposes.
+
+**F. Key Benefits of Non-Transferable Access NFTs**
+
+The use of Token-2022's Non-Transferable extension provides critical security and economic benefits:
+
+1. **Prevents Access Resale Markets**: Unlike traditional NFTs, these cannot be sold on secondary markets, ensuring creators capture full value from each sale.
+
+2. **Anti-Piracy Enforcement**: Even if someone obtains the collection CID, they cannot access content from pinners without the non-transferable NFT bound to their wallet.
+
+3. **Wallet Compromise Protection**: If a user's wallet is hacked, the attacker cannot move the access NFT to their own wallet, limiting damage.
+
+4. **Regulatory Compliance**: Non-transferability helps avoid classification as a security, as the NFT has no investment value or speculative market.
+
+5. **Fair Creator Revenue**: Every viewer must purchase their own access, eliminating "group buy" schemes where one purchase is shared among many users.
+
+6. **Audit Trail**: Each access NFT creates a permanent, immutable record of who purchased access and when, useful for analytics and compliance.
+
+7. **Moderation Effectiveness**: Freezing or burning a non-transferable NFT immediately revokes access with no recovery path (user can't transfer to a new wallet).
 
 **D. Collection Staking Pool**
 
@@ -341,6 +447,23 @@ Unlike traditional models where payment goes directly to a creator, CaptureGem d
 - **Payment Split:** The purchased tokens are split automatically:
   - 50% is transferred to the Collection Ownership Staking Pool where token stakers earn proportional rewards.
   - 50% is locked in an `AccessEscrow` PDA (with the `cid_hash` stored), awaiting content delivery confirmation.
+- **Access NFT Minting:** Atomically with the escrow creation, an Access NFT is minted:
+  1. A unique NFT mint account is created using **Token-2022 with Non-Transferable extension** (1 token supply, 0 decimals).
+  2. The single token is minted to the purchaser's wallet.
+  3. **Non-Transferable Enforcement**: The Token-2022 Non-Transferable extension is enabled on the mint, making it cryptographically impossible to transfer the NFT to any other wallet. This ensures:
+     - Access rights are permanently bound to the purchaser's wallet.
+     - No secondary markets can form for access rights.
+     - Stolen/compromised wallets cannot transfer access to attackers.
+  4. Metadata is attached via Metaplex Token Metadata program:
+     - `name`: "Access Pass: {collection_name}"
+     - `symbol`: "ACCESS"
+     - `uri`: Points to off-chain metadata (collection thumbnail, description)
+     - `collection`: References the collection ID
+     - `purchaser`: Original purchaser wallet address
+     - `purchased_at`: Unix timestamp
+  5. The NFT mint address is stored in the `AccessEscrow.access_nft_mint` field.
+  6. The protocol retains **freeze authority** on the mint to enable moderation (revoking access by freezing the token account).
+  7. This NFT becomes the purchaser's cryptographic proof of access rights.
 - **Pinner CID Reveal:** One of the pinners who is actively hosting the collection observes the new `AccessEscrow` on-chain. The pinner:
   1. Encrypts the collection CID using the purchaser's wallet public key (X25519-XSalsa20-Poly1305 / ECIES).
   2. Submits a `reveal_cid` transaction that creates a `CidReveal` account containing the encrypted CID bytes.
@@ -363,7 +486,13 @@ Unlike traditional models where payment goes directly to a creator, CaptureGem d
     ]
   }
   ```
-- **Content Download:** With the verified collection CID, the client fetches the manifest and then begins requesting the individual video CIDs from the IPFS swarm.
+- **NFT Verification at Peer Connection:** Before connecting to IPFS peers to download content, the purchaser's client:
+  1. Signs a handshake message containing their wallet address, collection ID, NFT mint address, and current timestamp.
+  2. Presents this signed message to each pinner during the IPFS connection handshake.
+  3. Pinners verify the signature and check on-chain that the wallet owns the Access NFT.
+  4. Only pinners that accept the NFT proof will serve content blocks via Bitswap.
+  5. This prevents unauthorized users (who don't own the NFT) from accessing content even if they somehow obtain the CID.
+- **Content Download:** With the verified collection CID and accepted NFT proof, the client fetches the manifest and then begins requesting the individual video CIDs from the IPFS swarm.
 
 **Collection Token Staking:**
 
@@ -384,16 +513,50 @@ Pinners are incentivized to monitor the blockchain for new `AccessEscrow` accoun
 - Pinners who consistently provide fast, valid CID reveals build on-chain reputation, attracting more purchase traffic.
 - If no pinner reveals the CID within 24 hours, the escrow burns and no one earns—creating urgency for pinners to act.
 
+**NFT-Based Access Verification:**
+
+Before serving any content, pinners enforce strict access control at the peer-to-peer layer:
+
+1. **Connection Handshake:** When a purchaser's IPFS node connects to a pinner's node, the purchaser must present a signed access proof message.
+
+2. **Proof Message Structure:**
+   ```json
+   {
+     "wallet_address": "5xKbW...",
+     "collection_id": "cooking-101",
+     "access_nft_mint": "8yFmZ...",
+     "timestamp": 1704326400,
+     "signature": "3vGtY..."  // Ed25519 signature by wallet's private key
+   }
+   ```
+
+3. **Pinner Verification Steps:**
+   - **Signature Validation:** Verify the signature matches the claimed wallet_address.
+   - **NFT Ownership Check:** Query Solana RPC to confirm the wallet owns the Access NFT:
+     ```
+     getTokenAccountsByOwner(wallet_address, {mint: access_nft_mint})
+     ```
+   - **NFT Metadata Verification:** Ensure the NFT's metadata.collection matches the requested collection_id.
+   - **Timestamp Freshness:** Reject proofs older than 5 minutes (prevents replay attacks).
+   - **Escrow Validation (Optional):** Cross-check that an `AccessEscrow` exists/existed for this purchaser+collection pair.
+
+4. **Access Decision:**
+   - **If all checks pass:** Pinner adds the purchaser to an allowlist and serves content blocks via IPFS Bitswap.
+   - **If any check fails:** Pinner rejects the connection, logs the unauthorized attempt, and does not serve content.
+
+5. **Caching & Performance:** To minimize RPC load, pinners cache NFT verification results for ~30 seconds. Subsequent block requests from the same wallet within this window are served without re-verification.
+
 **The Trust-Based Payment Model:**
 
 The buyer is the ultimate arbiter of which peers deserve payment. This creates strong incentives for peers to provide high-quality, fast, and reliable service:
 
 - **CID Acquisition:** After a pinner reveals the encrypted CID and the purchaser verifies it (as described in 4.2), the client has the authentic collection CID and can fetch the manifest.
 - **Discovery:** The Purchaser's client uses the IPFS DHT (Distributed Hash Table) to find peers hosting the individual video CIDs listed in the collection manifest.
+- **NFT Presentation:** For each discovered peer, the purchaser's client sends the signed NFT proof message. Only peers that accept the proof (after verification) will serve content.
 - **Connection & Monitoring:** The Purchaser's IPFS Check Tool actively monitors the data stream via the Bitswap protocol. It logs granular accounting data:
   - Peer ID X sent 500MB (Blocks 1-5000).
   - Peer ID Y sent 200MB (Blocks 5001-7000).
-  - Peer ID Z connected but sent 0MB (Timed out).
+  - Peer ID Z connected but sent 0MB (Timed out or rejected NFT proof).
 - **Client Decision:** Upon download completion (or sufficient streaming buffer), the client algorithmically determines that Peer X and Peer Y are valid earners based on "Useful Bytes Delivered."
 - **Buyer-Controlled Settlement:**
   - The purchaser's client constructs a `release_escrow` transaction containing the list of valid Peer Wallets [WalletX, WalletY] and their respective weights based on actual bytes delivered.

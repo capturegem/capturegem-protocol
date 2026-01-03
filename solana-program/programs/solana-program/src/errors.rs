@@ -32,4 +32,6 @@ pub enum ProtocolError {
     EscrowExpired,
     #[msg("Escrow has not expired yet (cannot burn).")]
     EscrowNotExpired,
+    #[msg("Insufficient initial liquidity provided. Creator must provide minimum CAPGM to pair with collection tokens.")]
+    InsufficientInitialLiquidity,
 }

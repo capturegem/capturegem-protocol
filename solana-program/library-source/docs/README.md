@@ -88,7 +88,18 @@ const { signature, positionMint } = await orcaClient.openPosition({
 
 ### 4. Deposit Liquidity (Flash Deposit)
 
+⚠️ **IMPORTANT: Creator Must Provide CAPGM Liquidity**
+
+When depositing the 80% of collection tokens to Orca, the creator **must provide CAPGM tokens** to pair with them. This is not optional and serves as a "Cost of Business" to:
+- Prevent spam collections
+- Ensure creator commitment ("skin in the game")
+- Enable healthy price discovery
+- Demonstrate confidence in the collection
+
+**Minimum Required**: ~50-100 CAPGM tokens (~$50-100 USD equivalent)
+
 ```typescript
+// ✅ Creator must have CAPGM in their wallet BEFORE calling this
 const signature = await orcaClient.depositLiquidity({
   collectionId: "my-collection",
   collectionOwner: owner.publicKey,
@@ -97,7 +108,7 @@ const signature = await orcaClient.depositLiquidity({
   positionMint: positionMint,
   collectionMint: collectionMint,
   capgmMint: capgmMint,
-  inputTokenAmount: new anchor.BN(800_000_000), // 800 tokens
+  inputTokenAmount: new anchor.BN(800_000_000), // 800 collection tokens
   slippageTolerancePercent: 1, // 1%
   tickSpacing: 64,
   tickLowerIndex: tickLowerIndex,
@@ -105,7 +116,16 @@ const signature = await orcaClient.depositLiquidity({
 });
 
 // ✅ Liquidity deposited with protocol control!
+// The creator's CAPGM is transferred and paired with collection tokens
 ```
+
+**Economic Rationale**:
+- The creator can recover this investment through:
+  - Appreciation of their 10% collection token allocation
+  - Staking rewards from their holdings
+  - Price appreciation supported by the initial liquidity
+
+**Validation**: The program validates that `token_max_b` (CAPGM amount) meets `MIN_INITIAL_CAPGM_LIQUIDITY` constant.
 
 ## Key Features
 
@@ -156,12 +176,16 @@ The client automatically sets appropriate compute unit limits:
 
 ### Flash Deposit Pattern
 
-The `depositLiquidity` method implements the Flash Deposit pattern:
+The `depositLiquidity` method implements the Flash Deposit pattern with creator-provided CAPGM:
 
-1. **Pull**: Transfers CAPGM from user → Collection Reserve B
-2. **Deposit**: Collection PDA signs Orca CPI with both reserves
+1. **Validation**: Ensures CAPGM amount meets `MIN_INITIAL_CAPGM_LIQUIDITY` threshold
+2. **Pull**: Transfers CAPGM from creator's wallet → Collection Reserve B  
+3. **Deposit**: Collection PDA signs Orca CPI with both reserves (Collection Tokens + CAPGM)
 
-This happens atomically in one transaction, ensuring protocol control.
+This happens atomically in one transaction, ensuring:
+- Protocol control over liquidity positions
+- Creator provides necessary paired liquidity
+- Proper validation of minimum requirements
 
 ## PDA Derivations
 

@@ -5,6 +5,7 @@ use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface, TransferCh
 use anchor_spl::associated_token::AssociatedToken;
 use crate::state::*;
 use crate::errors::ProtocolError;
+use crate::constants::MIN_INITIAL_CAPGM_LIQUIDITY;
 
 /// Orca Whirlpool Program ID (Mainnet/Devnet)
 pub const ORCA_WHIRLPOOL_PROGRAM_ID: Pubkey = pubkey!("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc");
@@ -295,6 +296,14 @@ pub fn open_orca_position(
 #[derive(Accounts)]
 pub struct DepositLiquidityToOrca<'info> {
     /// The creator (provides CAPGM/Quote tokens and pays for account creation)
+    /// 
+    /// ⚠️ IMPORTANT: The creator MUST provide CAPGM tokens to pair with the
+    /// 80% of collection tokens allocated to liquidity. This is not optional.
+    /// 
+    /// The creator's CAPGM is transferred from `creator_token_b` to the
+    /// Collection's Reserve B, then paired with Collection Tokens in the Orca pool.
+    /// 
+    /// Minimum required: MIN_INITIAL_CAPGM_LIQUIDITY (~$50-100 worth)
     #[account(mut)]
     pub creator: Signer<'info>,
 
@@ -350,6 +359,14 @@ pub struct DepositLiquidityToOrca<'info> {
     pub token_mint_b: InterfaceAccount<'info, Mint>,
 
     /// Creator's Source Account for Token B (CAPGM)
+    /// 
+    /// This account MUST have sufficient CAPGM balance to meet the minimum
+    /// liquidity requirement (MIN_INITIAL_CAPGM_LIQUIDITY).
+    /// 
+    /// The creator provides this upfront as the "Cost of Business" to:
+    /// 1. Pair with 80% of collection tokens in the Orca pool
+    /// 2. Prevent spam collections
+    /// 3. Demonstrate commitment to the collection's success
     #[account(
         mut,
         constraint = creator_token_b.mint == token_mint_b.key() @ ProtocolError::Unauthorized,
@@ -396,6 +413,43 @@ pub struct DepositLiquidityToOrca<'info> {
 }
 
 /// Deposit liquidity into an Orca Whirlpool using the "Flash Deposit" pattern
+/// 
+/// ## Initial Liquidity Pairing Requirement
+/// 
+/// The Creator MUST provide CAPGM tokens to pair with the 80% of Collection Tokens
+/// allocated to the Orca liquidity pool. This is a fundamental requirement:
+/// 
+/// - **Scenario**: When minting 1,000,000 collection tokens, 800,000 tokens (80%)
+///   are allocated to the liquidity reserve for Orca.
+/// - **Pairing Requirement**: These 800k tokens cannot be deposited alone; they must
+///   be paired with CAPGM (the quote currency).
+/// - **Creator Responsibility**: The creator must provide the initial CAPGM liquidity
+///   (minimum ~$50-100 worth, configurable via MIN_INITIAL_CAPGM_LIQUIDITY constant).
+/// 
+/// ## Economic Rationale
+/// 
+/// This upfront cost serves multiple critical purposes:
+/// - **Spam Prevention**: Creates an economic barrier to entry that prevents low-effort
+///   or spam collections from flooding the platform.
+/// - **Skin in the Game**: Ensures creators have financial commitment to their content's
+///   success and aren't just dumping tokens into the market.
+/// - **Market Signal**: Demonstrates the creator's confidence in their collection's value.
+/// - **Sybil Resistance**: Makes it expensive to create fake or malicious collections.
+/// 
+/// ## Creator ROI
+/// 
+/// The creator can recover this investment (and more) through:
+/// - Appreciation of their 10% token allocation as the collection gains popularity
+/// - Staking rewards from their 10% holdings in the collection staking pool
+/// - Price appreciation of the overall token due to the initial liquidity supporting
+///   healthy price discovery
+/// 
+/// ## Validation
+/// 
+/// This function validates that:
+/// 1. `token_max_b` (CAPGM amount) meets the minimum threshold
+/// 2. The creator has sufficient CAPGM balance in their `creator_token_b` account
+/// 3. All amounts are non-zero and valid
 pub fn deposit_liquidity_to_orca(
     ctx: Context<DepositLiquidityToOrca>,
     liquidity_amount: u128,
@@ -410,6 +464,19 @@ pub fn deposit_liquidity_to_orca(
     require!(
         liquidity_amount > 0 && token_max_a > 0 && token_max_b > 0,
         ProtocolError::InvalidFeeConfig
+    );
+
+    // ✅ CRITICAL VALIDATION: Enforce minimum CAPGM liquidity requirement
+    // This is the "Cost of Business" that prevents spam and ensures creator commitment
+    require!(
+        token_max_b >= MIN_INITIAL_CAPGM_LIQUIDITY,
+        ProtocolError::InsufficientInitialLiquidity
+    );
+
+    msg!(
+        "✅ Liquidity requirement met: {} CAPGM >= {} minimum",
+        token_max_b,
+        MIN_INITIAL_CAPGM_LIQUIDITY
     );
 
     // STEP 1: Transfer CAPGM from Creator → Collection Reserve B

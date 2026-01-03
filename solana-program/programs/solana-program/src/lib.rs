@@ -46,8 +46,9 @@ pub mod solana_program {
         ctx: Context<CreateAccessEscrow>,
         amount_locked: u64,
         cid_hash: [u8; 32],
+        access_nft_mint: Pubkey,
     ) -> Result<()> {
-        instructions::access::create_access_escrow(ctx, amount_locked, cid_hash)
+        instructions::access::create_access_escrow(ctx, amount_locked, cid_hash, access_nft_mint)
     }
 
     pub fn purchase_access(

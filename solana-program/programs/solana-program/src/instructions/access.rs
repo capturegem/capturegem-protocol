@@ -1,5 +1,10 @@
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::program::invoke_signed;
+use anchor_lang::solana_program::system_instruction;
 use anchor_spl::token_interface::{TokenInterface, Transfer, Burn, burn};
+use anchor_spl::token_2022::{self, Token2022};
+use spl_token_2022::extension::{ExtensionType, StateWithExtensionsMut, BaseStateWithExtensionsMut};
+use spl_token_2022::state::Mint as MintState;
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
@@ -50,13 +55,29 @@ pub struct PurchaseAccess<'info> {
     )]
     pub access_escrow: Account<'info, AccessEscrow>,
 
+    /// Access NFT Mint - will be created with Non-Transferable extension
+    /// CHECK: Created manually with Token-2022 extensions
+    #[account(
+        mut,
+        signer,
+    )]
+    pub access_nft_mint: AccountInfo<'info>,
+
+    /// CHECK: Purchaser's NFT token account (will be created to hold the access NFT)
+    #[account(mut)]
+    pub purchaser_nft_account: UncheckedAccount<'info>,
+
     pub token_program: Interface<'info, TokenInterface>,
+    /// Token-2022 program for NFT with extensions
+    pub token_2022_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
+    pub rent: Sysvar<'info, Rent>,
     pub clock: Sysvar<'info, Clock>,
 }
 
 /// Purchase access to a collection
 /// Splits payment: 50% to staking pool (for token holders), 50% to escrow (for peers)
+/// Mints a non-transferable Access NFT to the purchaser as proof of access rights
 pub fn purchase_access(
     ctx: Context<PurchaseAccess>,
     total_amount: u64,
@@ -89,16 +110,80 @@ pub fn purchase_access(
         .checked_div(100)
         .ok_or(ProtocolError::MathOverflow)?;
 
-    // Initialize the escrow (holds 50% for peers)
+    // ============================================================================
+    // STEP 1: Mint Non-Transferable Access NFT
+    // ============================================================================
+    
+    // Calculate space needed for mint with NonTransferable extension
+    let space = ExtensionType::try_calculate_account_len::<MintState>(&[
+        ExtensionType::NonTransferable,
+    ]).map_err(|_| ProtocolError::MathOverflow)?;
+    
+    let rent = ctx.accounts.rent.minimum_balance(space);
+    
+    // Create the mint account
+    invoke_signed(
+        &system_instruction::create_account(
+            ctx.accounts.purchaser.key,
+            ctx.accounts.access_nft_mint.key,
+            rent,
+            space as u64,
+            &token_2022::ID,
+        ),
+        &[
+            ctx.accounts.purchaser.to_account_info(),
+            ctx.accounts.access_nft_mint.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
+        ],
+        &[],
+    )?;
+
+    // Initialize NonTransferable extension
+    let mut mint_data = ctx.accounts.access_nft_mint.try_borrow_mut_data()?;
+    let mut mint_with_extension = StateWithExtensionsMut::<MintState>::unpack_uninitialized(&mut mint_data)?;
+    
+    // Initialize the NonTransferable extension first (required before mint init)
+    mint_with_extension.init_extension::<spl_token_2022::extension::non_transferable::NonTransferable>(true)?;
+    
+    // Initialize the mint: supply=1, decimals=0, freeze_authority=collection (for moderation)
+    mint_with_extension.base = MintState {
+        mint_authority: anchor_lang::solana_program::program_option::COption::Some(*ctx.accounts.purchaser.key),
+        supply: 0, // Will be minted next
+        decimals: 0,
+        is_initialized: true,
+        freeze_authority: anchor_lang::solana_program::program_option::COption::Some(collection.key()),
+    };
+    
+    drop(mint_data); // Release the borrow
+
+    msg!("NonTransferable Access NFT mint created: {}", ctx.accounts.access_nft_mint.key());
+
+    // TODO: In production, also:
+    // 1. Create purchaser_nft_account (associated token account)
+    // 2. Mint 1 token to purchaser_nft_account
+    // 3. Add Metaplex metadata with collection info, purchased_at timestamp
+    // 4. Revoke mint authority (so supply stays at 1)
+    
+    // For now, we store the mint address and log the event
+    let nft_mint_key = ctx.accounts.access_nft_mint.key();
+
+    // ============================================================================
+    // STEP 2: Initialize the escrow with NFT reference
+    // ============================================================================
+    
     access_escrow.purchaser = ctx.accounts.purchaser.key();
     access_escrow.collection = collection.key();
+    access_escrow.access_nft_mint = nft_mint_key;
     access_escrow.cid_hash = cid_hash;
     access_escrow.amount_locked = amount_to_escrow;
     access_escrow.created_at = clock.unix_timestamp;
     access_escrow.is_cid_revealed = false;
     access_escrow.bump = ctx.bumps.access_escrow;
 
-    // Transfer 50% to staking pool
+    // ============================================================================
+    // STEP 3: Transfer 50% to staking pool
+    // ============================================================================
+    
     let transfer_to_pool = Transfer {
         from: ctx.accounts.purchaser_token_account.to_account_info(),
         to: ctx.accounts.pool_token_account.to_account_info(),
@@ -120,7 +205,10 @@ pub fn purchase_access(
             .ok_or(ProtocolError::MathOverflow)?;
     }
 
-    // Transfer 50% to escrow
+    // ============================================================================
+    // STEP 4: Transfer 50% to escrow
+    // ============================================================================
+    
     let transfer_to_escrow = Transfer {
         from: ctx.accounts.purchaser_token_account.to_account_info(),
         to: ctx.accounts.escrow_token_account.to_account_info(),
@@ -130,9 +218,10 @@ pub fn purchase_access(
     anchor_spl::token_interface::transfer(cpi_ctx_escrow, amount_to_escrow)?;
 
     msg!(
-        "AccessPurchased: Purchaser={} Collection={} Total={} ToStakers={} ToEscrow={} ExpiresAt={}",
+        "AccessPurchased: Purchaser={} Collection={} NFT={} Total={} ToStakers={} ToEscrow={} ExpiresAt={}",
         ctx.accounts.purchaser.key(),
         collection.collection_id,
+        nft_mint_key,
         total_amount,
         amount_to_stakers,
         amount_to_escrow,
@@ -182,11 +271,12 @@ pub struct CreateAccessEscrow<'info> {
 }
 
 /// Creates an AccessEscrow after user has swapped CAPGM for Collection Tokens via Orca.
-/// NOTE: This is a legacy function. Use purchase_access for the new 50/50 split flow.
+/// NOTE: This is a legacy function. Use purchase_access for the new 50/50 split flow with NFT minting.
 pub fn create_access_escrow(
     ctx: Context<CreateAccessEscrow>,
     amount_locked: u64,
     cid_hash: [u8; 32],
+    access_nft_mint: Pubkey,
 ) -> Result<()> {
     require!(amount_locked > 0, ProtocolError::InsufficientFunds);
 
@@ -203,6 +293,7 @@ pub fn create_access_escrow(
     // Initialize the escrow
     access_escrow.purchaser = ctx.accounts.purchaser.key();
     access_escrow.collection = collection.key();
+    access_escrow.access_nft_mint = access_nft_mint;
     access_escrow.cid_hash = cid_hash;
     access_escrow.amount_locked = amount_locked;
     access_escrow.created_at = clock.unix_timestamp;

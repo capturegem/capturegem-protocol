@@ -13,6 +13,14 @@ import { WalletManager, RiskLevel } from "../libs/WalletManager";
  * 3. initialize_orca_pool() - Create Whirlpool on Orca
  * 4. open_orca_position() + deposit_liquidity_to_orca() - Add liquidity
  * 
+ * ⚠️ IMPORTANT: Creator Must Provide CAPGM Liquidity
+ * 
+ * When depositing the 80% of collection tokens to Orca, the creator MUST
+ * provide CAPGM tokens to pair with them. This is the "Cost of Business"
+ * that prevents spam collections and ensures creator commitment.
+ * 
+ * Minimum Required: ~50-100 CAPGM tokens (~$50-100 USD equivalent)
+ * 
  * ⚠️ This example assumes you have already completed steps 1-2
  */
 
@@ -206,6 +214,19 @@ async function main() {
   // =========================================================================
 
   console.log("\n=== Step 4b: Deposit Liquidity (Flash Deposit) ===");
+  
+  // ⚠️ CRITICAL REQUIREMENT: Creator Must Provide CAPGM
+  console.log("\n⚠️  CREATOR LIQUIDITY REQUIREMENT:");
+  console.log("   The creator MUST provide CAPGM tokens to pair with collection tokens.");
+  console.log("   This is the 'Cost of Business' that prevents spam collections.");
+  console.log("   Minimum: MIN_INITIAL_CAPGM_LIQUIDITY (~50-100 CAPGM)");
+  console.log("   ");
+  console.log("   Economic Rationale:");
+  console.log("   • Prevents spam collections");
+  console.log("   • Ensures creator commitment ('skin in the game')");
+  console.log("   • Enables healthy price discovery");
+  console.log("   • Creator recovers via 10% allocation + staking rewards");
+  console.log("");
 
   // Define how much to deposit
   // Example: Deposit 800 Collection tokens (the 80% from minting)
@@ -216,7 +237,7 @@ async function main() {
   console.log("Slippage tolerance:", slippageTolerance + "%");
 
   // Calculate required CAPGM amount (client-side)
-  console.log("Calculating liquidity amounts...");
+  console.log("\nCalculating liquidity amounts...");
 
   const quote = await orcaClient.calculateLiquidityAmounts({
     whirlpoolPda,
@@ -228,14 +249,16 @@ async function main() {
     slippageTolerancePercent: slippageTolerance,
   });
 
-  console.log("Liquidity calculation:");
+  console.log("\nLiquidity calculation:");
   console.log("   Liquidity:", quote.liquidityAmount.toString());
-  console.log("   Max Token A:", quote.tokenMaxA.toString());
-  console.log("   Max Token B:", quote.tokenMaxB.toString());
+  console.log("   Max Token A (Collection):", quote.tokenMaxA.toString());
+  console.log("   Max Token B (CAPGM):", quote.tokenMaxB.toString(), "← Creator must provide this");
   console.log("   Est Token A:", quote.estimatedTokenA.toString());
   console.log("   Est Token B:", quote.estimatedTokenB.toString());
 
   // Check user's CAPGM balance
+  console.log("\n✅ Validating creator's CAPGM balance...");
+  
   const creatorCapgmAccount = anchor.utils.token.associatedAddress({
     mint: mintB,
     owner: provider.wallet.publicKey,
@@ -248,17 +271,43 @@ async function main() {
 
     if (!capgmAccountInfo) {
       throw new Error(
-        "Creator CAPGM account not found. Please create and fund it first."
+        "❌ Creator CAPGM account not found. Please create and fund it first.\n" +
+        "   The creator must have sufficient CAPGM to pair with collection tokens.\n" +
+        "   Required: " + quote.tokenMaxB.toString() + " CAPGM tokens"
       );
     }
 
-    console.log("✅ Creator has CAPGM account");
+    // Parse token account to check balance
+    const tokenAccountData = await provider.connection.getTokenAccountBalance(
+      creatorCapgmAccount
+    );
+    const capgmBalance = new anchor.BN(tokenAccountData.value.amount);
+
+    console.log("   Creator CAPGM balance:", capgmBalance.toString());
+    console.log("   Required CAPGM amount:", quote.tokenMaxB.toString());
+
+    if (capgmBalance.lt(quote.tokenMaxB)) {
+      throw new Error(
+        "❌ Insufficient CAPGM balance!\n" +
+        "   Balance: " + capgmBalance.toString() + "\n" +
+        "   Required: " + quote.tokenMaxB.toString() + "\n" +
+        "   Please acquire more CAPGM tokens before depositing liquidity."
+      );
+    }
+
+    console.log("✅ Creator has sufficient CAPGM balance");
   } catch (error) {
-    console.error("❌ CAPGM account check failed:", error);
+    console.error("❌ CAPGM validation failed:", error);
     throw error;
   }
 
   // Deposit liquidity
+  console.log("\n📤 Depositing liquidity to Orca (Flash Deposit)...");
+  console.log("   This will:");
+  console.log("   1. Transfer " + quote.tokenMaxB.toString() + " CAPGM from creator → Collection Reserve B");
+  console.log("   2. Pair with " + quote.tokenMaxA.toString() + " Collection tokens");
+  console.log("   3. Deposit both to Orca Whirlpool with protocol control");
+  console.log("");
   try {
     const depositSig = await orcaClient.depositLiquidity({
       collectionId,

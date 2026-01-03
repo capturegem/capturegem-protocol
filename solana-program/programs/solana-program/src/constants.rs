@@ -56,3 +56,12 @@ pub const SPLIT_STAKERS: u64 = 10;
 
 // Precision for reward calculations
 pub const REWARD_PRECISION: u128 = 1_000_000_000_000; // 1e12
+
+// Liquidity Requirements (in lamports/base units)
+// Minimum CAPGM required to pair with 80% of collection tokens
+// Set to ~$50-100 worth of CAPGM to prevent spam collections
+// Actual value should be adjusted based on CAPGM token price
+pub const MIN_INITIAL_CAPGM_LIQUIDITY: u64 = 50_000_000; // 50 CAPGM tokens (6 decimals)
+// Note: This acts as a "Cost of Business" to prevent spam while remaining
+// accessible for serious creators. Creator can recover this via their 10%
+// allocation appreciation and staking rewards.

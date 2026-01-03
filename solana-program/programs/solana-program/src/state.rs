@@ -76,6 +76,7 @@ pub struct ViewRights {
 pub struct AccessEscrow {
     pub purchaser: Pubkey,       // The user buying content (only they can release funds)
     pub collection: Pubkey,       // The content being bought
+    pub access_nft_mint: Pubkey,  // The NFT mint address proving access rights
     pub cid_hash: [u8; 32],      // SHA-256 hash of the collection CID (for verification)
     pub amount_locked: u64,       // Tokens (50% of purchase), waiting for release to peers
     pub created_at: i64,          // Timestamp for 24-hour burn timeout logic
@@ -84,7 +85,7 @@ pub struct AccessEscrow {
 }
 
 impl AccessEscrow {
-    pub const MAX_SIZE: usize = 8 + 32 + 32 + 32 + 8 + 8 + 1 + 1;
+    pub const MAX_SIZE: usize = 8 + 32 + 32 + 32 + 32 + 8 + 8 + 1 + 1;
 }
 
 #[account]
