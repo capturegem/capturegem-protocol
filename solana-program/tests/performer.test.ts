@@ -35,8 +35,12 @@ describe("Performer Escrow", () => {
       const mint = Keypair.generate();
       const { provider } = await import("./helpers/setup");
       const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await provider.connection.confirmTransaction(sig);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await provider.connection.confirmTransaction(sig, 'confirmed');
+      // Verify balance before proceeding
+      const balance = await provider.connection.getBalance(mint.publicKey);
+      if (balance === 0) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
       
       await program.methods
         .createCollection(
@@ -86,8 +90,12 @@ describe("Performer Escrow", () => {
     const wrongPerformer = Keypair.generate();
     const { provider } = await import("./helpers/setup");
     const sig = await provider.connection.requestAirdrop(wrongPerformer.publicKey, 2 * 1e9);
-    await provider.connection.confirmTransaction(sig);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await provider.connection.confirmTransaction(sig, 'confirmed');
+    // Verify balance before proceeding
+    const balance = await provider.connection.getBalance(wrongPerformer.publicKey);
+    if (balance === 0) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
     
     const performerTokenAccount = Keypair.generate().publicKey;
 

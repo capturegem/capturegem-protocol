@@ -36,8 +36,12 @@ describe("Pinner Operations", () => {
       const mint = Keypair.generate();
       const { provider } = await import("./helpers/setup");
       const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await provider.connection.confirmTransaction(sig);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await provider.connection.confirmTransaction(sig, 'confirmed');
+      // Verify balance before proceeding
+      const balance = await provider.connection.getBalance(mint.publicKey);
+      if (balance === 0) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
       
       await program.methods
         .createCollection(
@@ -123,8 +127,12 @@ describe("Pinner Operations", () => {
       const authority = Keypair.generate(); // In production, this would be a verified auditor
       const { provider } = await import("./helpers/setup");
       const sig = await provider.connection.requestAirdrop(authority.publicKey, 2 * 1e9);
-      await provider.connection.confirmTransaction(sig);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await provider.connection.confirmTransaction(sig, 'confirmed');
+      // Verify balance before proceeding
+      const balance = await provider.connection.getBalance(authority.publicKey);
+      if (balance === 0) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
 
       const tx = await program.methods
         .submitAuditResult(true)
@@ -193,8 +201,12 @@ describe("Pinner Operations", () => {
       const authority = Keypair.generate();
       const { provider } = await import("./helpers/setup");
       const sig = await provider.connection.requestAirdrop(authority.publicKey, 2 * 1e9);
-      await provider.connection.confirmTransaction(sig);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await provider.connection.confirmTransaction(sig, 'confirmed');
+      // Verify balance before proceeding
+      const balance = await provider.connection.getBalance(authority.publicKey);
+      if (balance === 0) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
       
       await program.methods
         .submitAuditResult(false)

@@ -84,8 +84,12 @@ describe("Integration Tests", () => {
       const [collectionPDA] = getCollectionPDA(user.publicKey, uniqueCollectionId);
       const mint = Keypair.generate();
       const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await provider.connection.confirmTransaction(sig);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await provider.connection.confirmTransaction(sig, 'confirmed');
+      // Verify balance before proceeding
+      const balance = await provider.connection.getBalance(mint.publicKey);
+      if (balance === 0) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
       
       await program.methods
         .createCollection(
@@ -292,9 +296,14 @@ describe("Integration Tests", () => {
       
       const sig1 = await provider.connection.requestAirdrop(mint1.publicKey, 2 * 1e9);
       const sig2 = await provider.connection.requestAirdrop(mint2.publicKey, 2 * 1e9);
-      await provider.connection.confirmTransaction(sig1);
-      await provider.connection.confirmTransaction(sig2);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await provider.connection.confirmTransaction(sig1, 'confirmed');
+      await provider.connection.confirmTransaction(sig2, 'confirmed');
+      // Verify balances before proceeding
+      const balance1 = await provider.connection.getBalance(mint1.publicKey);
+      const balance2 = await provider.connection.getBalance(mint2.publicKey);
+      if (balance1 === 0 || balance2 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
 
       await program.methods
         .createCollection(

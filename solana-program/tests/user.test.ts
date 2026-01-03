@@ -110,8 +110,12 @@ describe("User Account & Collection", () => {
       const [collectionPDA] = getCollectionPDA(user.publicKey, COLLECTION_ID);
       const mint = Keypair.generate();
       const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await provider.connection.confirmTransaction(sig);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await provider.connection.confirmTransaction(sig, 'confirmed');
+      // Verify balance before proceeding
+      const balance = await provider.connection.getBalance(mint.publicKey);
+      if (balance === 0) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
 
       const tx = await program.methods
         .createCollection(
@@ -151,8 +155,12 @@ describe("User Account & Collection", () => {
       const [collectionPDA] = getCollectionPDA(user.publicKey, "invalid-collection");
       const mint = Keypair.generate();
       const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await provider.connection.confirmTransaction(sig);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await provider.connection.confirmTransaction(sig, 'confirmed');
+      // Verify balance before proceeding
+      const balance = await provider.connection.getBalance(mint.publicKey);
+      if (balance === 0) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
 
       try {
         await program.methods
@@ -185,8 +193,12 @@ describe("User Account & Collection", () => {
       const [collectionPDA] = getCollectionPDA(user.publicKey, longId);
       const mint = Keypair.generate();
       const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await provider.connection.confirmTransaction(sig);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await provider.connection.confirmTransaction(sig, 'confirmed');
+      // Verify balance before proceeding
+      const balance = await provider.connection.getBalance(mint.publicKey);
+      if (balance === 0) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
 
       try {
         await program.methods
@@ -219,8 +231,12 @@ describe("User Account & Collection", () => {
       const [collectionPDA] = getCollectionPDA(user.publicKey, "test-collection-2");
       const mint = Keypair.generate();
       const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await provider.connection.confirmTransaction(sig);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await provider.connection.confirmTransaction(sig, 'confirmed');
+      // Verify balance before proceeding
+      const balance = await provider.connection.getBalance(mint.publicKey);
+      if (balance === 0) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
 
       try {
         await program.methods
@@ -253,8 +269,12 @@ describe("User Account & Collection", () => {
       const [collectionPDA] = getCollectionPDA(user.publicKey, "test-collection-3");
       const mint = Keypair.generate();
       const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await provider.connection.confirmTransaction(sig);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await provider.connection.confirmTransaction(sig, 'confirmed');
+      // Verify balance before proceeding
+      const balance = await provider.connection.getBalance(mint.publicKey);
+      if (balance === 0) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
 
       try {
         await program.methods
