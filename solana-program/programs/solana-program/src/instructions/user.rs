@@ -5,7 +5,7 @@ use crate::errors::ProtocolError;
 use crate::constants::*;
 
 #[derive(Accounts)]
-#[instruction(collection_id: String, name: String, content_cid: String, access_threshold_usd: u64, max_video_limit: u32)]
+#[instruction(collection_id: String, name: String, content_cid: String, access_threshold_usd: u64)]
 pub struct CreateCollection<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
@@ -13,7 +13,7 @@ pub struct CreateCollection<'info> {
     #[account(
         init,
         payer = owner,
-        space = 8 + 32 + 32 + MAX_ID_LEN + MAX_NAME_LEN + MAX_URL_LEN + 8 + 32 + 4 + 4 + 8 + 8 + 8 + 8 + 8 + 16,
+        space = 8 + 32 + 32 + MAX_ID_LEN + MAX_NAME_LEN + MAX_URL_LEN + 8 + 32 + 8 + 8 + 8 + 8 + 8 + 16,
         seeds = [b"collection", owner.key().as_ref(), collection_id.as_bytes()],
         bump
     )]
@@ -45,12 +45,10 @@ pub fn create_collection(
     name: String,
     content_cid: String,
     access_threshold_usd: u64,
-    max_video_limit: u32,
 ) -> Result<()> {
     require!(collection_id.len() <= MAX_ID_LEN, ProtocolError::StringTooLong);
     require!(name.len() <= MAX_NAME_LEN, ProtocolError::StringTooLong);
     require!(content_cid.len() <= MAX_URL_LEN, ProtocolError::StringTooLong);
-    require!(max_video_limit > 0, ProtocolError::InvalidFeeConfig);
 
     let collection = &mut ctx.accounts.collection;
     collection.owner = ctx.accounts.owner.key();
@@ -60,8 +58,6 @@ pub fn create_collection(
     collection.content_cid = content_cid;
     collection.access_threshold_usd = access_threshold_usd;
     collection.oracle_feed = ctx.accounts.oracle_feed.key();
-    collection.max_video_limit = max_video_limit;
-    collection.video_count = 0;
     
     // Initialize reward trackers
     collection.reward_pool_balance = 0;

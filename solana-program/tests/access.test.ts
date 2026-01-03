@@ -26,7 +26,7 @@ describe("Buy Access Token", () => {
     
     // Create a collection for testing
     const { SystemProgram, SYSVAR_RENT_PUBKEY } = await import("@solana/web3.js");
-    const { COLLECTION_NAME, CONTENT_CID, ACCESS_THRESHOLD_USD, MAX_VIDEO_LIMIT } = await import("./helpers/constants");
+    const { COLLECTION_NAME, CONTENT_CID, ACCESS_THRESHOLD_USD } = await import("./helpers/constants");
     
     [collectionPDA] = getCollectionPDA(user.publicKey, COLLECTION_ID);
     const [mintPDA] = getMintPDA(collectionPDA);
@@ -45,7 +45,6 @@ describe("Buy Access Token", () => {
           COLLECTION_NAME,
           CONTENT_CID,
           ACCESS_THRESHOLD_USD,
-          MAX_VIDEO_LIMIT
         )
         .accountsPartial({
           owner: user.publicKey,

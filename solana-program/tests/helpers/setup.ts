@@ -91,19 +91,6 @@ export const getPerformerEscrowPDA = (collection: PublicKey): [PublicKey, number
   );
 };
 
-export const getVideoPDA = (collection: PublicKey, videoId: string): [PublicKey, number] => {
-  // Ensure videoId doesn't exceed 32 bytes for PDA seed
-  const videoIdBuffer = Buffer.from(videoId);
-  const truncatedId = videoIdBuffer.length > 32 
-    ? videoIdBuffer.slice(0, 32) 
-    : videoIdBuffer;
-  
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("video"), collection.toBuffer(), truncatedId],
-    program.programId
-  );
-};
-
 export const getModTicketPDA = (targetId: string): [PublicKey, number] => {
   // Ensure targetId doesn't exceed 32 bytes for PDA seed
   const targetIdBuffer = Buffer.from(targetId);
@@ -201,7 +188,6 @@ export async function ensureCollectionExists(
   collectionName: string,
   contentCid: string,
   accessThresholdUsd: anchor.BN,
-  maxVideoLimit: number
 ): Promise<PublicKey> {
   const [collectionPDA] = getCollectionPDA(owner, collectionId);
   const [mintPDA] = getMintPDA(collectionPDA);
@@ -233,8 +219,7 @@ export async function ensureCollectionExists(
         collectionId,
         collectionName,
         contentCid,
-        accessThresholdUsd,
-        maxVideoLimit
+        accessThresholdUsd
       )
       .accountsPartial({
         owner: owner,

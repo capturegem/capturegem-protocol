@@ -23,7 +23,6 @@ export class ProtocolClient {
     collectionId: string, 
     name: string,
     contentCid: string,
-    maxVideoLimit: number, 
     accessThresholdUsd: number,
     oracleFeed: PublicKey
   ) {
@@ -41,8 +40,7 @@ export class ProtocolClient {
         collectionId, 
         name,
         contentCid,
-        new anchor.BN(accessThresholdUsd),
-        maxVideoLimit
+        new anchor.BN(accessThresholdUsd)
       )
       .accounts({
         owner: owner,

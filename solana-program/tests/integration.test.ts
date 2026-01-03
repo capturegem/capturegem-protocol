@@ -16,7 +16,6 @@ import {
   getUserAccountPDA,
   getCollectionPDA,
   getMintPDA,
-  getVideoPDA,
   getPinnerStatePDA,
   getModTicketPDA,
   getModeratorStakePDA,
@@ -32,9 +31,6 @@ import {
   COLLECTION_NAME,
   CONTENT_CID,
   ACCESS_THRESHOLD_USD,
-  MAX_VIDEO_LIMIT,
-  VIDEO_ID,
-  ROOT_CID,
   TARGET_ID,
   REASON,
 } from "./helpers/constants";
@@ -45,7 +41,7 @@ describe("Integration Tests", () => {
   });
 
   describe("Complete User Flow", () => {
-    it("Initialize protocol → Create user → Create collection → Upload video", async () => {
+    it("Initialize protocol → Create user → Create collection", async () => {
       // 1. Initialize protocol (if not already initialized)
       const [globalStatePDA] = getGlobalStatePDA();
       try {
@@ -90,8 +86,7 @@ describe("Integration Tests", () => {
           uniqueCollectionId,
           COLLECTION_NAME,
           CONTENT_CID,
-          ACCESS_THRESHOLD_USD,
-          MAX_VIDEO_LIMIT
+          ACCESS_THRESHOLD_USD
         )
         .accountsPartial({
           owner: user.publicKey,
@@ -105,24 +100,9 @@ describe("Integration Tests", () => {
         .signers([user])
         .rpc();
 
-      // 4. Upload video
-      const [videoPDA] = getVideoPDA(collectionPDA, VIDEO_ID);
-      await program.methods
-        .uploadVideo(VIDEO_ID, ROOT_CID)
-        .accountsPartial({
-          owner: user.publicKey,
-          collection: collectionPDA,
-          video: videoPDA,
-          performerWallet: null,
-          systemProgram: SystemProgram.programId,
-          clock: SYSVAR_CLOCK_PUBKEY,
-        })
-        .signers([user])
-        .rpc();
-
       // Verify final state
       const collection = await program.account.collectionState.fetch(collectionPDA);
-      expect(collection.videoCount).to.equal(1);
+      expect(collection.collectionId).to.equal(uniqueCollectionId);
     });
   });
 
@@ -145,8 +125,7 @@ describe("Integration Tests", () => {
             COLLECTION_ID,
             COLLECTION_NAME,
             CONTENT_CID,
-            ACCESS_THRESHOLD_USD,
-            MAX_VIDEO_LIMIT
+            ACCESS_THRESHOLD_USD
           )
           .accountsPartial({
             owner: user.publicKey,
@@ -290,8 +269,7 @@ describe("Integration Tests", () => {
           uniqueId1,
           "Collection 1",
           CONTENT_CID,
-          ACCESS_THRESHOLD_USD,
-          MAX_VIDEO_LIMIT
+          ACCESS_THRESHOLD_USD
         )
         .accountsPartial({
           owner: user.publicKey,
@@ -309,8 +287,7 @@ describe("Integration Tests", () => {
           uniqueId2,
           "Collection 2",
           CONTENT_CID,
-          ACCESS_THRESHOLD_USD,
-          MAX_VIDEO_LIMIT
+          ACCESS_THRESHOLD_USD
         )
         .accountsPartial({
           owner: user.publicKey,
@@ -347,8 +324,7 @@ describe("Integration Tests", () => {
             COLLECTION_ID,
             COLLECTION_NAME,
             CONTENT_CID,
-            ACCESS_THRESHOLD_USD,
-            MAX_VIDEO_LIMIT
+            ACCESS_THRESHOLD_USD
           )
           .accountsPartial({
             owner: user.publicKey,

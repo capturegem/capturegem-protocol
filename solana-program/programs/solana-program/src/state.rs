@@ -44,10 +44,6 @@ pub struct CollectionState {
     pub access_threshold_usd: u64, // In USD cents (e.g. 1000 = $10.00)
     pub oracle_feed: Pubkey,   // Price feed for this specific Collection Token
     
-    // Video Management
-    pub max_video_limit: u32,  // Maximum number of videos allowed
-    pub video_count: u32,      // Current number of videos
-    
     // Reward Logic
     pub reward_pool_balance: u64,  // Accumulated 50% fees for Pinners
     pub owner_reward_balance: u64, // Accumulated 20% fees for Owner
@@ -123,18 +119,4 @@ pub struct ModeratorStake {
 
 impl ModeratorStake {
     pub const MAX_SIZE: usize = 8 + 32 + 8 + 1 + 4 + 1;
-}
-
-#[account]
-pub struct VideoState {
-    pub collection: Pubkey,
-    pub video_id: String,       // Content hash or unique ID
-    pub root_cid: String,       // IPFS CID of the HLS directory
-    pub performer_wallet: Option<Pubkey>, // Performer's wallet (for fee distribution)
-    pub uploaded_at: i64,
-    pub bump: u8,
-}
-
-impl VideoState {
-    pub const MAX_SIZE: usize = 8 + 32 + MAX_ID_LEN + MAX_URL_LEN + 33 + 8 + 1;
 }

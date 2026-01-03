@@ -20,8 +20,6 @@ pub enum ProtocolError {
     TicketAlreadyResolved,
     #[msg("Insufficient moderator stake.")]
     InsufficientModeratorStake,
-    #[msg("Video limit exceeded for collection.")]
-    VideoLimitExceeded,
     #[msg("Collection not found.")]
     CollectionNotFound,
     #[msg("View rights expired.")]

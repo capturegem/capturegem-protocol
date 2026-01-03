@@ -26,10 +26,9 @@ pub mod solana_program {
         collection_id: String, 
         name: String, 
         content_cid: String, 
-        access_threshold_usd: u64,
-        max_video_limit: u32
+        access_threshold_usd: u64
     ) -> Result<()> {
-        instructions::user::create_collection(ctx, collection_id, name, content_cid, access_threshold_usd, max_video_limit)
+        instructions::user::create_collection(ctx, collection_id, name, content_cid, access_threshold_usd)
     }
 
     pub fn mint_collection_tokens(
@@ -37,14 +36,6 @@ pub mod solana_program {
         amount: u64,
     ) -> Result<()> {
         instructions::user::mint_collection_tokens(ctx, amount)
-    }
-
-    pub fn upload_video(
-        ctx: Context<UploadVideo>,
-        video_id: String,
-        root_cid: String,
-    ) -> Result<()> {
-        instructions::video::upload_video(ctx, video_id, root_cid)
     }
 
     pub fn buy_access_token(ctx: Context<BuyAccess>) -> Result<()> {

@@ -22,7 +22,6 @@ import {
   COLLECTION_NAME,
   CONTENT_CID,
   ACCESS_THRESHOLD_USD,
-  MAX_VIDEO_LIMIT,
 } from "./helpers/constants";
 
 describe("Mint Collection Tokens", () => {
@@ -59,7 +58,6 @@ describe("Mint Collection Tokens", () => {
           COLLECTION_NAME,
           CONTENT_CID,
           ACCESS_THRESHOLD_USD,
-          MAX_VIDEO_LIMIT
         )
         .accountsPartial({
           owner: user.publicKey,

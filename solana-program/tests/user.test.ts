@@ -17,7 +17,6 @@ import {
   COLLECTION_NAME,
   CONTENT_CID,
   ACCESS_THRESHOLD_USD,
-  MAX_VIDEO_LIMIT,
 } from "./helpers/constants";
 
 describe("User Account & Collection", () => {
@@ -128,8 +127,7 @@ describe("User Account & Collection", () => {
           COLLECTION_ID,
           COLLECTION_NAME,
           CONTENT_CID,
-          ACCESS_THRESHOLD_USD,
-          MAX_VIDEO_LIMIT
+          ACCESS_THRESHOLD_USD
         )
         .accountsPartial({
           owner: user.publicKey,
@@ -149,43 +147,10 @@ describe("User Account & Collection", () => {
       expect(collection.name).to.equal(COLLECTION_NAME);
       expect(collection.contentCid).to.equal(CONTENT_CID);
       expect(collection.accessThresholdUsd.toString()).to.equal(ACCESS_THRESHOLD_USD.toString());
-      expect(collection.maxVideoLimit).to.equal(MAX_VIDEO_LIMIT);
-      expect(collection.videoCount).to.equal(0);
       expect(collection.rewardPoolBalance.toString()).to.equal("0");
       expect(collection.ownerRewardBalance.toString()).to.equal("0");
       expect(collection.performerEscrowBalance.toString()).to.equal("0");
       expect(collection.stakerRewardBalance.toString()).to.equal("0");
-    });
-
-    it("Fails if max_video_limit is 0", async () => {
-      const [collectionPDA] = getCollectionPDA(user.publicKey, "invalid-collection");
-      const [mintPDA] = getMintPDA(collectionPDA);
-
-      try {
-        await program.methods
-          .createCollection(
-            "invalid-collection",
-            COLLECTION_NAME,
-            CONTENT_CID,
-            ACCESS_THRESHOLD_USD,
-            0 // Invalid
-          )
-          .accountsPartial({
-            owner: user.publicKey,
-            collection: collectionPDA,
-            oracleFeed: oracleFeed.publicKey,
-            mint: mintPDA,
-            tokenProgram: TOKEN_PROGRAM_ID,
-            systemProgram: SystemProgram.programId,
-          })
-          .signers([user])
-          .rpc();
-        expect.fail("Should have failed");
-      } catch (err: unknown) {
-        const errStr = err.toString();
-        // The error might be "unknown signer" if airdrop failed, or "InvalidFeeConfig" if validation worked
-        expect(errStr.includes("InvalidFeeConfig") || errStr.includes("unknown signer")).to.be.true;
-      }
     });
 
     it("Fails if collection_id exceeds MAX_ID_LEN", async () => {
@@ -204,8 +169,7 @@ describe("User Account & Collection", () => {
             longId,
             COLLECTION_NAME,
             CONTENT_CID,
-            ACCESS_THRESHOLD_USD,
-            MAX_VIDEO_LIMIT
+            ACCESS_THRESHOLD_USD
           )
           .accountsPartial({
             owner: testUser.publicKey,
@@ -248,8 +212,7 @@ describe("User Account & Collection", () => {
             "test-collection-2",
             longName,
             CONTENT_CID,
-            ACCESS_THRESHOLD_USD,
-            MAX_VIDEO_LIMIT
+            ACCESS_THRESHOLD_USD
           )
           .accountsPartial({
             owner: user.publicKey,
@@ -280,8 +243,7 @@ describe("User Account & Collection", () => {
             "test-collection-3",
             COLLECTION_NAME,
             longCid,
-            ACCESS_THRESHOLD_USD,
-            MAX_VIDEO_LIMIT
+            ACCESS_THRESHOLD_USD
           )
           .accountsPartial({
             owner: user.publicKey,

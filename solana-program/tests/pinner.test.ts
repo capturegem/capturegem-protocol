@@ -13,7 +13,7 @@ import {
   ensureProtocolInitialized,
   ensureUserAccountInitialized,
 } from "./helpers/setup";
-import { COLLECTION_ID, COLLECTION_NAME, CONTENT_CID, ACCESS_THRESHOLD_USD, MAX_VIDEO_LIMIT } from "./helpers/constants";
+import { COLLECTION_ID, COLLECTION_NAME, CONTENT_CID, ACCESS_THRESHOLD_USD } from "./helpers/constants";
 
 describe("Pinner Operations", () => {
   let collectionPDA: PublicKey;
@@ -42,7 +42,6 @@ describe("Pinner Operations", () => {
           COLLECTION_NAME,
           CONTENT_CID,
           ACCESS_THRESHOLD_USD,
-          MAX_VIDEO_LIMIT
         )
         .accountsPartial({
           owner: user.publicKey,

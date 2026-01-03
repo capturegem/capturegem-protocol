@@ -8,7 +8,6 @@ Tests are organized into separate files by functionality:
 
 - `protocol.test.ts` - Protocol initialization tests
 - `user.test.ts` - User account and collection creation tests
-- `video.test.ts` - Video upload and limit enforcement tests
 - `access.test.ts` - View rights and access token tests
 - `pinner.test.ts` - Pinner registration, audit, and reward tests
 - `treasury.test.ts` - Fee harvesting and distribution tests
