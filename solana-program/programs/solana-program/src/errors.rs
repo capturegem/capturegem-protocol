@@ -34,4 +34,6 @@ pub enum ProtocolError {
     EscrowNotExpired,
     #[msg("Insufficient initial liquidity provided. Creator must provide minimum CAPGM to pair with collection tokens.")]
     InsufficientInitialLiquidity,
+    #[msg("Invalid account provided.")]
+    InvalidAccount,
 }
