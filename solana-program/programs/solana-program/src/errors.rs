@@ -24,8 +24,6 @@ pub enum ProtocolError {
     CollectionNotFound,
     #[msg("View rights expired.")]
     ViewRightsExpired,
-    #[msg("Performer escrow not found.")]
-    PerformerEscrowNotFound,
     #[msg("User account not initialized.")]
     UserAccountNotInitialized,
     #[msg("Escrow has expired (24 hours passed).")]

@@ -11,7 +11,6 @@ Tests are organized into separate files by functionality:
 - `access.test.ts` - View rights and access token tests
 - `pinner.test.ts` - Pinner registration and reward tests
 - `staking.test.ts` - Moderator staking and slashing tests
-- `performer.test.ts` - Performer escrow claiming tests
 - `moderation.test.ts` - Ticket creation and resolution tests
 
 ## Shared Helpers

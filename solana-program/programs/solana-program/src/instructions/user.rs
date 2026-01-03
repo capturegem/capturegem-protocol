@@ -98,7 +98,6 @@ pub fn create_collection(
     
     // Initialize reward trackers
     collection.owner_reward_balance = 0;
-    collection.performer_escrow_balance = 0;
     collection.staker_reward_balance = 0;
     collection.tokens_minted = false; // Tokens not yet minted
     collection.bump = ctx.bumps.collection;
@@ -114,10 +113,11 @@ pub fn create_collection(
 
     // 2. Calculate Rent
     let rent_lamports = ctx.accounts.rent.minimum_balance(space);
+    let space_u64 = u64::try_from(space).map_err(|_| ProtocolError::MathOverflow)?;
 
     // 3. Prepare Seeds for Signing (Mint is a PDA of Collection)
-    let seeds = &[
-        b"mint",
+    let seeds = [
+        b"mint".as_ref(),
         ctx.accounts.collection.to_account_info().key.as_ref(),
         &[ctx.bumps.mint],
     ];
@@ -129,7 +129,7 @@ pub fn create_collection(
             ctx.accounts.owner.key,
             ctx.accounts.mint.key,
             rent_lamports,
-            space as u64,
+            space_u64,
             ctx.accounts.token_program.key,
         ),
         &[
@@ -353,8 +353,8 @@ pub fn mint_collection_tokens(
         .unwrap_or(reserve_amount);
 
     // Prepare PDA signer seeds (Collection PDA is the mint authority)
-    let seeds = &[
-        b"collection",
+    let seeds = [
+        b"collection".as_ref(),
         collection_owner.as_ref(),
         collection_id.as_bytes(),
         &[collection_bump],

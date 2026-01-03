@@ -62,12 +62,6 @@ pub mod solana_program {
         instructions::staking::slash_moderator(ctx)
     }
 
-    pub fn claim_performer_escrow(
-        ctx: Context<ClaimPerformerEscrow>,
-    ) -> Result<()> {
-        instructions::performer::claim_performer_escrow(ctx)
-    }
-
     pub fn create_ticket(
         ctx: Context<CreateTicket>,
         target_id: String,

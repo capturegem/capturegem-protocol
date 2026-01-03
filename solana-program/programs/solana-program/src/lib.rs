@@ -143,19 +143,6 @@ pub mod solana_program {
         instructions::staking::unstake_collection_tokens(ctx, amount)
     }
 
-    pub fn initialize_performer_escrow(
-        ctx: Context<InitializePerformerEscrow>,
-        performer_wallet: Pubkey,
-    ) -> Result<()> {
-        instructions::performer::initialize_performer_escrow(ctx, performer_wallet)
-    }
-
-    pub fn claim_performer_escrow(
-        ctx: Context<ClaimPerformerEscrow>,
-    ) -> Result<()> {
-        instructions::performer::claim_performer_escrow(ctx)
-    }
-
     pub fn create_ticket(
         ctx: Context<CreateTicket>,
         target_id: String,

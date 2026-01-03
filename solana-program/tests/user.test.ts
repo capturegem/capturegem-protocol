@@ -156,7 +156,6 @@ describe("User Account & Collection", () => {
       expect(collection.accessThresholdUsd.toString()).to.equal(ACCESS_THRESHOLD_USD.toString());
       expect(collection.rewardPoolBalance.toString()).to.equal("0");
       expect(collection.ownerRewardBalance.toString()).to.equal("0");
-      expect(collection.performerEscrowBalance.toString()).to.equal("0");
       expect(collection.stakerRewardBalance.toString()).to.equal("0");
     });
 

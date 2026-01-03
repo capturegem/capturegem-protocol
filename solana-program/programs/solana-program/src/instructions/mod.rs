@@ -4,7 +4,6 @@ pub mod access;
 pub mod pinner;
 pub mod moderation;
 pub mod staking;
-pub mod performer;
 pub mod orca;
 
 pub use admin::*;
@@ -13,5 +12,4 @@ pub use access::*;
 pub use pinner::*;
 pub use moderation::*;
 pub use staking::*;
-pub use performer::*;
 pub use orca::*;

@@ -17,9 +17,6 @@ pub const SEED_VIEW_RIGHT: &[u8] = b"view_right";
 pub const SEED_PINNER_BOND: &[u8] = b"host_bond";
 
 #[constant]
-pub const SEED_PERFORMER_ESCROW: &[u8] = b"performer_escrow";
-
-#[constant]
 pub const SEED_ACCESS_ESCROW: &[u8] = b"access_escrow";
 
 #[constant]

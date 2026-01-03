@@ -84,13 +84,6 @@ export const getPinnerStatePDA = (pinner: PublicKey, collection: PublicKey): [Pu
   );
 };
 
-export const getPerformerEscrowPDA = (collection: PublicKey): [PublicKey, number] => {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("performer_escrow"), collection.toBuffer()],
-    program.programId
-  );
-};
-
 export const getModTicketPDA = (targetId: string): [PublicKey, number] => {
   // Ensure targetId doesn't exceed 32 bytes for PDA seed
   const targetIdBuffer = Buffer.from(targetId);

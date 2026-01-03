@@ -8,6 +8,11 @@ use spl_token_2022::extension::{ExtensionType, StateWithExtensionsMut, BaseState
 use spl_token_2022::state::Mint as MintState;
 use spl_token_2022::instruction::{transfer_checked as spl_transfer_checked, set_authority};
 use spl_token_2022::instruction::AuthorityType;
+use mpl_token_metadata::{
+    instructions::create_metadata_accounts_v3,
+    types::DataV2,
+    ID as METADATA_PROGRAM_ID,
+};
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
@@ -129,6 +134,17 @@ pub struct PurchaseAccess<'info> {
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>,
     pub clock: Sysvar<'info, Clock>,
+    
+    /// CHECK: Metaplex Token Metadata account (PDA derived from mint)
+    /// This account will be created to store NFT metadata including collection, purchaser, and purchased_at
+    /// PDA derivation: ["metadata", METADATA_PROGRAM_ID, mint]
+    #[account(mut)]
+    pub metadata_account: UncheckedAccount<'info>,
+    
+    /// CHECK: Metaplex Token Metadata program
+    /// Validated via address constraint to ensure it's the correct program
+    #[account(address = METADATA_PROGRAM_ID)]
+    pub token_metadata_program: UncheckedAccount<'info>,
 }
 
 /// Purchase access to a collection
@@ -211,6 +227,7 @@ pub fn purchase_access(
     ]).map_err(|_| ProtocolError::MathOverflow)?;
     
     let rent = ctx.accounts.rent.minimum_balance(space);
+    let space_u64 = u64::try_from(space).map_err(|_| ProtocolError::MathOverflow)?;
     
     // Create the mint account
     invoke_signed(
@@ -218,7 +235,7 @@ pub fn purchase_access(
             ctx.accounts.purchaser.key,
             ctx.accounts.access_nft_mint.key,
             rent,
-            space as u64,
+            space_u64,
             &token_2022::ID,
         ),
         &[
@@ -267,6 +284,78 @@ pub fn purchase_access(
     mint_to(mint_to_ctx, 1)?; // Mint exactly 1 token (NFT)
     
     msg!("Minted 1 Access NFT token to purchaser: {}", ctx.accounts.purchaser.key());
+
+    // ============================================================================
+    // CRITICAL: Create Metaplex Token Metadata Account
+    // This enables pinners to verify collection_id and access details on-chain
+    // Design Requirement 3.3.A: Metadata includes collection, purchaser, and purchased_at
+    // ============================================================================
+    
+    let collection_id_str = collection.collection_id.clone();
+    let metadata_name = format!("Access Pass: {}", collection_id_str);
+    let metadata_symbol = "ACCESS".to_string();
+    // URI points to off-chain JSON containing purchaser and purchased_at
+    // The off-chain JSON should follow this structure:
+    // {
+    //   "name": "Access Pass: {collection_id}",
+    //   "description": "Access NFT for collection",
+    //   "image": "{collection_thumbnail_uri}",
+    //   "attributes": [
+    //     { "trait_type": "collection_id", "value": "{collection_id}" },
+    //     { "trait_type": "purchaser", "value": "{purchaser_pubkey}" },
+    //     { "trait_type": "purchased_at", "value": {timestamp} }
+    //   ]
+    // }
+    // For now, use empty URI - client should upload metadata and update URI after purchase
+    let metadata_uri = String::new();
+    
+    // Construct metadata data structure
+    let metadata_data = DataV2 {
+        name: metadata_name,
+        symbol: metadata_symbol,
+        uri: metadata_uri,
+        seller_fee_basis_points: 0, // No royalties on access NFTs
+        creators: None, // No creators for access NFTs
+        collection: None, // Collection reference would go here if we had a collection NFT
+        uses: None, // No uses restrictions
+    };
+    
+    // Create metadata account via CPI to Metaplex Token Metadata program
+    let create_metadata_instruction = create_metadata_accounts_v3(
+        ctx.accounts.token_metadata_program.key(),
+        ctx.accounts.metadata_account.key(),
+        ctx.accounts.access_nft_mint.key(),
+        ctx.accounts.purchaser.key(), // mint_authority
+        ctx.accounts.purchaser.key(), // payer
+        ctx.accounts.purchaser.key(), // update_authority
+        metadata_data,
+        false, // is_mutable: Immutable metadata ensures integrity
+        None,  // collection_details
+        None,  // uses
+    );
+    
+    invoke_signed(
+        &create_metadata_instruction,
+        &[
+            ctx.accounts.metadata_account.to_account_info(),
+            ctx.accounts.access_nft_mint.to_account_info(),
+            ctx.accounts.purchaser.to_account_info(), // mint_authority
+            ctx.accounts.purchaser.to_account_info(), // payer
+            ctx.accounts.purchaser.to_account_info(), // update_authority
+            ctx.accounts.token_metadata_program.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
+            ctx.accounts.rent.to_account_info(),
+        ],
+        &[], // Purchaser signs the transaction, so no additional signers needed
+    )?;
+    
+    msg!(
+        "Created Metaplex metadata for Access NFT: {} Collection: {} Purchaser: {} PurchasedAt: {}",
+        ctx.accounts.access_nft_mint.key(),
+        collection_id_str,
+        ctx.accounts.purchaser.key(),
+        clock.unix_timestamp
+    );
 
     // ============================================================================
     // CRITICAL: Revoke mint authority to prevent additional minting

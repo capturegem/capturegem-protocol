@@ -440,8 +440,8 @@ pub fn deposit_liquidity_to_orca(
     
     let collection = &ctx.accounts.collection;
     let bump = collection.bump;
-    let seeds = &[
-        b"collection",
+    let seeds = [
+        b"collection".as_ref(),
         collection.owner.as_ref(),
         collection.collection_id.as_bytes(),
         &[bump],

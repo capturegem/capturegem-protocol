@@ -368,24 +368,6 @@ export class IndexerClient {
   }
 
   /**
-   * Get pending performer claim tickets (moderator view)
-   * 
-   * @param moderatorToken - Authentication token for moderators
-   * @returns Array of pending performer claims
-   */
-  public async getPendingPerformerClaims(moderatorToken: string): Promise<any[]> {
-    try {
-      const response = await this.api.get("/moderation/performer-claims/pending", {
-        headers: { Authorization: `Bearer ${moderatorToken}` }
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Failed to fetch pending performer claims:", error);
-      return [];
-    }
-  }
-
-  /**
    * Get censored CIDs for a collection
    * Returns list of CIDs that have been censored by moderators
    * 
@@ -525,26 +507,6 @@ export class IndexerClient {
     }
   }
 
-  /**
-   * Get performer claim status for a collection
-   * 
-   * @param collectionId - Collection identifier
-   * @param performerPubkey - Performer's wallet address
-   * @returns Performer claim status
-   */
-  public async getPerformerClaimStatus(
-    collectionId: string,
-    performerPubkey: string
-  ): Promise<{
-    hasClaim: boolean;
-    status: "pending" | "approved" | "rejected" | null;
-    claimAmount: string | null;
-  } | null> {
-    try {
-      const response = await this.api.get(
-        `/collections/${collectionId}/performer-claim/${performerPubkey}`
-      );
-      return response.data;
     } catch (error) {
       console.error(
         `Failed to fetch performer claim status for ${collectionId}:`,

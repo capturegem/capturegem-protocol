@@ -4,7 +4,7 @@
  * ModerationClient - Client library for moderation and copyright claim operations
  * 
  * Handles:
- * 1. Copyright claims (PerformerClaim) for stolen content
+ * 1. Copyright claims for stolen content
  * 2. Moderator approval/rejection of claims
  * 3. Burning unclaimed tokens from Claim Vault after 6 months
  * 4. Content reporting and blacklisting
@@ -643,101 +643,6 @@ export class ModerationClient {
   }
 
   /**
-   * Submit a performer claim ticket
-   * Used by performers to claim their fee share from a collection
-   * 
-   * @param collectionPubkey - Collection to claim from
-   * @param performerKeypair - Performer's keypair
-   * @param proof - Off-chain proof of performer identity
-   * @returns Transaction signature and ticket PDA
-   */
-  async submitPerformerClaim(
-    collectionPubkey: PublicKey,
-    performerKeypair: Keypair,
-    proof: OffChainProof
-  ): Promise<{ transaction: string; ticketPDA: PublicKey }> {
-    console.log("💰 Submitting performer claim...");
-
-    console.log(`   Performer: ${performerKeypair.publicKey.toBase58().slice(0, 8)}...`);
-    console.log(`   Collection: ${collectionPubkey.toBase58().slice(0, 8)}...`);
-
-    // Derive ticket PDA
-    const targetId = collectionPubkey.toBase58();
-    const [ticketPDA] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("ticket"),
-        Buffer.from(`${targetId}-performer-${performerKeypair.publicKey.toBase58()}`)
-      ],
-      this.program.programId
-    );
-
-    // Create ticket with TicketType::PerformerClaim
-    const ticketType = { performerClaim: {} };
-    const tx = await this.program.methods
-      .createTicket(
-        targetId,
-        ticketType,
-        JSON.stringify(proof)
-      )
-      .accountsPartial({
-        reporter: performerKeypair.publicKey,
-        ticket: ticketPDA,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([performerKeypair])
-      .rpc();
-
-    console.log(`✅ Performer claim submitted! Transaction: ${tx}`);
-    console.log(`   Ticket PDA: ${ticketPDA.toBase58()}`);
-
-    return { transaction: tx, ticketPDA };
-  }
-
-  /**
-   * Resolve a performer claim ticket (moderator only)
-   * Approves or rejects a performer's claim to their fee share
-   * 
-   * @param ticketPubkey - Performer claim ticket PDA
-   * @param moderatorKeypair - Moderator's keypair
-   * @param verdict - true = approve claim, false = reject claim
-   * @returns Transaction signature
-   */
-  async resolvePerformerClaim(
-    ticketPubkey: PublicKey,
-    moderatorKeypair: Keypair,
-    verdict: boolean
-  ): Promise<string> {
-    console.log(`${verdict ? "✅" : "❌"} Resolving performer claim...`);
-
-    // Fetch ticket to verify it's a PerformerClaim ticket
-    const ticket = await (this.program.account as any).modTicket.fetch(ticketPubkey);
-    
-    if (ticket.ticketType?.performerClaim === undefined) {
-      throw new Error("Ticket is not a PerformerClaim ticket");
-    }
-
-    console.log(`   Moderator: ${moderatorKeypair.publicKey.toBase58().slice(0, 8)}...`);
-    console.log(`   Verdict: ${verdict ? "APPROVED" : "REJECTED"}`);
-
-    // Use generic resolve_ticket for performer claims
-    const tx = await this.program.methods
-      .resolveTicket(verdict)
-      .accountsPartial({
-        moderator: moderatorKeypair.publicKey,
-        globalState: await this.getGlobalStatePDA(),
-        moderatorStake: await this.getModeratorStakePDA(moderatorKeypair.publicKey),
-        ticket: ticketPubkey,
-        collection: null, // Optional for PerformerClaim
-      })
-      .signers([moderatorKeypair])
-      .rpc();
-
-    console.log(`✅ Performer claim resolved! Transaction: ${tx}`);
-
-    return tx;
-  }
-
-  /**
    * Stake CAPGM tokens to become a moderator
    * 
    * @param moderatorKeypair - Moderator's keypair
@@ -923,7 +828,7 @@ export class ModerationClient {
    * @returns Array of tickets
    */
   async getTicketsByType(
-    ticketType: "contentReport" | "copyrightClaim" | "performerClaim" | "cidCensorship"
+    ticketType: "contentReport" | "copyrightClaim" | "cidCensorship"
   ): Promise<any[]> {
     const allTickets = await (this.program.account as any).modTicket.all();
     

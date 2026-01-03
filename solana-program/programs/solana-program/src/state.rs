@@ -55,7 +55,6 @@ pub struct CollectionState {
     
     // Reward Logic
     pub owner_reward_balance: u64, // Accumulated 20% fees for Owner
-    pub performer_escrow_balance: u64, // Accumulated 20% fees for Performer
     pub staker_reward_balance: u64,   // Accumulated 10% fees for CAPGM Stakers
     pub tokens_minted: bool,          // Whether collection tokens have been minted (one-time operation)
     pub bump: u8,
@@ -65,9 +64,9 @@ impl CollectionState {
     // 8 (discriminator) + 32 (owner) + MAX_ID_LEN (collection_id) + 32 (cid_hash) + 32 (mint) + 32 (pool_address) 
     // + 32 (claim_vault) + 8 (claim_deadline) + 8 (total_trust_score) + 1 (is_blacklisted) + MAX_NAME_LEN (name)
     // + MAX_URL_LEN (content_cid) + 8 (access_threshold_usd) + 32 (oracle_feed)
-    // + 8 (owner_reward_balance) + 8 (performer_escrow_balance) + 8 (staker_reward_balance)
+    // + 8 (owner_reward_balance) + 8 (staker_reward_balance)
     // + 1 (tokens_minted) + 1 (bump)
-    pub const MAX_SIZE: usize = 8 + 32 + MAX_ID_LEN + 32 + 32 + 32 + 32 + 8 + 8 + 1 + MAX_NAME_LEN + MAX_URL_LEN + 8 + 32 + 8 + 8 + 8 + 1 + 1;
+    pub const MAX_SIZE: usize = 8 + 32 + MAX_ID_LEN + 32 + 32 + 32 + 32 + 8 + 8 + 1 + MAX_NAME_LEN + MAX_URL_LEN + 8 + 32 + 8 + 8 + 1 + 1;
 }
 
 #[account]
@@ -128,18 +127,6 @@ pub struct PinnerState {
 }
 
 #[account]
-pub struct PerformerEscrow {
-    pub collection: Pubkey,
-    pub performer_wallet: Pubkey,  // Wallet address of the performer (can be updated via moderation)
-    pub balance: u64,              // Accumulated performer fees
-    pub bump: u8,
-}
-
-impl PerformerEscrow {
-    pub const MAX_SIZE: usize = 8 + 32 + 32 + 8 + 1;
-}
-
-#[account]
 pub struct ModTicket {
     pub reporter: Pubkey,
     pub target_id: String,      // ID of the content being reported
@@ -159,7 +146,6 @@ impl ModTicket {
 pub enum TicketType {
     ContentReport,   // Flagging illegal or TOS-violating content
     CopyrightClaim, // IP disputes - transfers 10% Claim Vault tokens to claimant
-    PerformerClaim,  // Performer claiming their fee share
     CidCensorship,   // Censoring specific CIDs - reimburses stakeholders from collection pools
 }
 
