@@ -124,9 +124,3 @@ describe("Performer Escrow", () => {
     }
   });
 });
-st errStr = err.toString();
-      // Account might not be initialized, or performer_wallet might not match
-      expect(errStr.includes("Unauthorized") || errStr.includes("AccountNotInitialized") || errStr.includes("PerformerEscrowNotFound")).to.be.true;
-    }
-  });
-});
