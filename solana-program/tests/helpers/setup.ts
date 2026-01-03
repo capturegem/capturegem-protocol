@@ -168,72 +168,117 @@ export async function ensureUserAccountInitialized(userKey: Keypair): Promise<vo
 // Helper to airdrop and wait for confirmation
 export async function airdropAndConfirm(publicKey: PublicKey, amount: number = 2 * 1e9): Promise<void> {
   // Check if already has sufficient balance
-  const currentBalance = await provider.connection.getBalance(publicKey);
+  let currentBalance = await provider.connection.getBalance(publicKey);
   if (currentBalance >= amount) {
     return; // Already has enough
   }
   
   // Request airdrop
-  const sig = await provider.connection.requestAirdrop(publicKey, amount);
+  let sig: string;
+  try {
+    sig = await provider.connection.requestAirdrop(publicKey, amount);
+  } catch (e: any) {
+    // If airdrop request fails, wait and retry
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    sig = await provider.connection.requestAirdrop(publicKey, amount);
+  }
+  
+  // Get latest blockhash for confirmation
+  const latestBlockhash = await provider.connection.getLatestBlockhash('confirmed');
   
   // Wait for confirmation - poll both signature status and balance
   let balance = 0;
-  for (let i = 0; i < 50; i++) {
-    // Check balance first (faster)
+  let confirmed = false;
+  
+  for (let i = 0; i < 60; i++) {
+    // Check balance first (faster and more reliable)
     balance = await provider.connection.getBalance(publicKey);
-    if (balance > 0) {
-      // Balance is there, verify signature status
+    if (balance >= amount) {
+      // Balance is sufficient, verify signature status
       try {
         const status = await provider.connection.getSignatureStatus(sig);
         if (status?.value?.confirmationStatus === 'confirmed' || 
             status?.value?.confirmationStatus === 'finalized' ||
             status === null) { // null means finalized and removed from recent
-          return; // Success
+          confirmed = true;
+          break;
         }
       } catch (e) {
         // If we have balance, that's good enough
-        if (balance > 0) {
-          return;
+        if (balance >= amount) {
+          confirmed = true;
+          break;
         }
       }
     }
     
     // Wait before next check
-    await new Promise(resolve => setTimeout(resolve, 200));
+    await new Promise(resolve => setTimeout(resolve, 250));
   }
   
-  // Final check
+  // If still not confirmed, try confirming explicitly
+  if (!confirmed || balance < amount) {
+    try {
+      await provider.connection.confirmTransaction({
+        signature: sig,
+        blockhash: latestBlockhash.blockhash,
+        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
+      }, 'confirmed');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      balance = await provider.connection.getBalance(publicKey);
+    } catch (e) {
+      // Continue to check balance
+    }
+  }
+  
+  // Final check - if still 0, try one more airdrop
   balance = await provider.connection.getBalance(publicKey);
-  if (balance === 0) {
-    // Last resort: try one more airdrop with confirmation
+  if (balance < amount) {
+    // Last resort: try one more airdrop
     try {
       const sig2 = await provider.connection.requestAirdrop(publicKey, amount);
-      // Wait and confirm the transaction
-      await provider.connection.confirmTransaction(sig2, 'confirmed');
-      // Wait a bit more
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const latestBlockhash2 = await provider.connection.getLatestBlockhash('confirmed');
       
-      // Check balance again
-      for (let i = 0; i < 20; i++) {
-        balance = await provider.connection.getBalance(publicKey);
-        if (balance > 0) {
-          return; // Success
-        }
+      // Wait longer for second attempt
+      for (let i = 0; i < 40; i++) {
         await new Promise(resolve => setTimeout(resolve, 300));
+        balance = await provider.connection.getBalance(publicKey);
+        if (balance >= amount) {
+          break;
+        }
+      }
+      
+      // Try to confirm explicitly
+      if (balance < amount) {
+        await provider.connection.confirmTransaction({
+          signature: sig2,
+          blockhash: latestBlockhash2.blockhash,
+          lastValidBlockHeight: latestBlockhash2.lastValidBlockHeight
+        }, 'confirmed');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        balance = await provider.connection.getBalance(publicKey);
       }
     } catch (e) {
       // Ignore errors, check balance one more time
       balance = await provider.connection.getBalance(publicKey);
-      if (balance > 0) {
-        return;
-      }
     }
     
-    if (balance === 0) {
-      throw new Error(`Failed to airdrop ${amount} lamports to ${publicKey.toString()} - balance still 0 after all retries`);
+    if (balance < amount) {
+      // One final check after longer wait
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      balance = await provider.connection.getBalance(publicKey);
+      if (balance < amount) {
+        throw new Error(`Failed to airdrop ${amount} lamports to ${publicKey.toString()} - balance is ${balance} after all retries (need at least ${amount})`);
+      }
     }
   }
   
   // Extra safety: wait a bit more to ensure transaction can use the funds
-  await new Promise(resolve => setTimeout(resolve, 100));
+  await new Promise(resolve => setTimeout(resolve, 300));
+  
+  // Final verification
+  const finalCheck = await provider.connection.getBalance(publicKey);
+  if (finalCheck < amount) {
+    throw new Error(`Airdrop verification failed for ${publicKey.toString()} - balance is ${finalCheck} (need at least ${amount})`);
+  }
 }

@@ -131,7 +131,7 @@ describe("User Account & Collection", () => {
           systemProgram: SystemProgram.programId,
           rent: SYSVAR_RENT_PUBKEY,
         })
-        .signers([user, mint])
+        .signers([user])
         .rpc();
 
       const collection = await program.account.collectionState.fetch(collectionPDA);
@@ -151,18 +151,6 @@ describe("User Account & Collection", () => {
     it("Fails if max_video_limit is 0", async () => {
       const [collectionPDA] = getCollectionPDA(user.publicKey, "invalid-collection");
       const mint = Keypair.generate();
-      const { airdropAndConfirm, provider } = await import("./helpers/setup");
-      try {
-        await airdropAndConfirm(mint.publicKey);
-        const finalBalance = await provider.connection.getBalance(mint.publicKey);
-        if (finalBalance === 0) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          await airdropAndConfirm(mint.publicKey);
-        }
-      } catch (err) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        await airdropAndConfirm(mint.publicKey);
-      }
 
       try {
         await program.methods
@@ -182,7 +170,7 @@ describe("User Account & Collection", () => {
             systemProgram: SystemProgram.programId,
             rent: SYSVAR_RENT_PUBKEY,
           })
-          .signers([user, mint])
+          .signers([user])
           .rpc();
         expect.fail("Should have failed");
       } catch (err: any) {
@@ -196,18 +184,6 @@ describe("User Account & Collection", () => {
       const longId = "a".repeat(33); // MAX_ID_LEN is 32
       const [collectionPDA] = getCollectionPDA(user.publicKey, longId);
       const mint = Keypair.generate();
-      const { airdropAndConfirm, provider } = await import("./helpers/setup");
-      try {
-        await airdropAndConfirm(mint.publicKey);
-        const finalBalance = await provider.connection.getBalance(mint.publicKey);
-        if (finalBalance === 0) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          await airdropAndConfirm(mint.publicKey);
-        }
-      } catch (err) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        await airdropAndConfirm(mint.publicKey);
-      }
 
       try {
         await program.methods
@@ -227,7 +203,7 @@ describe("User Account & Collection", () => {
             systemProgram: SystemProgram.programId,
             rent: SYSVAR_RENT_PUBKEY,
           })
-          .signers([user, mint])
+          .signers([user])
           .rpc();
         expect.fail("Should have failed");
       } catch (err: any) {
@@ -241,18 +217,6 @@ describe("User Account & Collection", () => {
       const longName = "a".repeat(51); // MAX_NAME_LEN is 50
       const [collectionPDA] = getCollectionPDA(user.publicKey, "test-collection-2");
       const mint = Keypair.generate();
-      const { airdropAndConfirm, provider } = await import("./helpers/setup");
-      try {
-        await airdropAndConfirm(mint.publicKey);
-        const finalBalance = await provider.connection.getBalance(mint.publicKey);
-        if (finalBalance === 0) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          await airdropAndConfirm(mint.publicKey);
-        }
-      } catch (err) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        await airdropAndConfirm(mint.publicKey);
-      }
 
       try {
         await program.methods
@@ -272,7 +236,7 @@ describe("User Account & Collection", () => {
             systemProgram: SystemProgram.programId,
             rent: SYSVAR_RENT_PUBKEY,
           })
-          .signers([user, mint])
+          .signers([user])
           .rpc();
         expect.fail("Should have failed");
       } catch (err: any) {
@@ -286,18 +250,6 @@ describe("User Account & Collection", () => {
       const longCid = "a".repeat(201); // MAX_URL_LEN is 200
       const [collectionPDA] = getCollectionPDA(user.publicKey, "test-collection-3");
       const mint = Keypair.generate();
-      const { airdropAndConfirm, provider } = await import("./helpers/setup");
-      try {
-        await airdropAndConfirm(mint.publicKey);
-        const finalBalance = await provider.connection.getBalance(mint.publicKey);
-        if (finalBalance === 0) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          await airdropAndConfirm(mint.publicKey);
-        }
-      } catch (err) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        await airdropAndConfirm(mint.publicKey);
-      }
 
       try {
         await program.methods
@@ -317,7 +269,7 @@ describe("User Account & Collection", () => {
             systemProgram: SystemProgram.programId,
             rent: SYSVAR_RENT_PUBKEY,
           })
-          .signers([user, mint])
+          .signers([user])
           .rpc();
         expect.fail("Should have failed");
       } catch (err: any) {

@@ -34,20 +34,6 @@ describe("Video Upload", () => {
     [collectionPDA] = getCollectionPDA(user.publicKey, COLLECTION_ID);
     const mint = Keypair.generate();
     
-    // Airdrop to mint keypair if it's used as signer
-    const { airdropAndConfirm, provider } = await import("./helpers/setup");
-    try {
-      await airdropAndConfirm(mint.publicKey);
-      const finalBalance = await provider.connection.getBalance(mint.publicKey);
-      if (finalBalance === 0) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        await airdropAndConfirm(mint.publicKey);
-      }
-    } catch (err) {
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      await airdropAndConfirm(mint.publicKey);
-    }
-    
     // Check if collection exists, if not create it
     try {
       await program.account.collectionState.fetch(collectionPDA);
@@ -70,7 +56,7 @@ describe("Video Upload", () => {
           systemProgram: SystemProgram.programId,
           rent: SYSVAR_RENT_PUBKEY,
         })
-        .signers([user, mint])
+        .signers([user])
         .rpc();
     }
   });

@@ -30,26 +30,6 @@ describe("Buy Access Token", () => {
     [collectionPDA] = getCollectionPDA(user.publicKey, COLLECTION_ID);
     mint = Keypair.generate();
     
-    // Airdrop to mint keypair if it's used as signer
-    const { airdropAndConfirm, provider } = await import("./helpers/setup");
-    try {
-      await airdropAndConfirm(mint.publicKey);
-      // Verify balance one more time before proceeding
-      const finalBalance = await provider.connection.getBalance(mint.publicKey);
-      if (finalBalance === 0) {
-        // Wait a bit more and try again
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        const balance2 = await provider.connection.getBalance(mint.publicKey);
-        if (balance2 === 0) {
-          throw new Error(`Mint keypair ${mint.publicKey.toString()} still has 0 balance after airdrop`);
-        }
-      }
-    } catch (err) {
-      // If airdrop fails, try one more time with a longer wait
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      await airdropAndConfirm(mint.publicKey);
-    }
-    
     // Check if collection exists, if not create it
     try {
       await program.account.collectionState.fetch(collectionPDA);
@@ -72,7 +52,7 @@ describe("Buy Access Token", () => {
           systemProgram: SystemProgram.programId,
           rent: SYSVAR_RENT_PUBKEY,
         })
-        .signers([user, mint])
+        .signers([user])
         .rpc();
     }
     

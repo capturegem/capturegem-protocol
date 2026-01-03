@@ -34,18 +34,6 @@ describe("Pinner Operations", () => {
     } catch {
       // Collection doesn't exist, create it
       const mint = Keypair.generate();
-      const { airdropAndConfirm, provider } = await import("./helpers/setup");
-      try {
-        await airdropAndConfirm(mint.publicKey);
-        const finalBalance = await provider.connection.getBalance(mint.publicKey);
-        if (finalBalance === 0) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          await airdropAndConfirm(mint.publicKey);
-        }
-      } catch (err) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        await airdropAndConfirm(mint.publicKey);
-      }
       
       await program.methods
         .createCollection(
@@ -64,7 +52,7 @@ describe("Pinner Operations", () => {
           systemProgram: SystemProgram.programId,
           rent: SYSVAR_RENT_PUBKEY,
         })
-        .signers([user, mint])
+        .signers([user])
         .rpc();
     }
     

@@ -83,20 +83,6 @@ describe("Integration Tests", () => {
       const uniqueCollectionId = `collection-${Date.now()}`;
       const [collectionPDA] = getCollectionPDA(user.publicKey, uniqueCollectionId);
       const mint = Keypair.generate();
-      const { airdropAndConfirm, provider } = await import("./helpers/setup");
-      try {
-        await airdropAndConfirm(mint.publicKey);
-        // Verify balance one more time
-        const finalBalance = await provider.connection.getBalance(mint.publicKey);
-        if (finalBalance === 0) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          await airdropAndConfirm(mint.publicKey);
-        }
-      } catch (err) {
-        // Retry once more
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        await airdropAndConfirm(mint.publicKey);
-      }
       
       await program.methods
         .createCollection(
@@ -115,7 +101,7 @@ describe("Integration Tests", () => {
           systemProgram: SystemProgram.programId,
           rent: SYSVAR_RENT_PUBKEY,
         })
-        .signers([user, mint])
+        .signers([user])
         .rpc();
 
       // 4. Upload video
@@ -172,7 +158,7 @@ describe("Integration Tests", () => {
             systemProgram: SystemProgram.programId,
             rent: SYSVAR_RENT_PUBKEY,
           })
-          .signers([user, mint])
+          .signers([user])
           .rpc();
       }
       
@@ -300,21 +286,6 @@ describe("Integration Tests", () => {
       const [collection2PDA] = getCollectionPDA(user.publicKey, uniqueId2);
       const mint1 = Keypair.generate();
       const mint2 = Keypair.generate();
-      
-      const { airdropAndConfirm, provider } = await import("./helpers/setup");
-      // Airdrop sequentially to avoid rate limiting
-      await airdropAndConfirm(mint1.publicKey);
-      await new Promise(resolve => setTimeout(resolve, 500));
-      await airdropAndConfirm(mint2.publicKey);
-      
-      // Verify both have balance
-      const balance1 = await provider.connection.getBalance(mint1.publicKey);
-      const balance2 = await provider.connection.getBalance(mint2.publicKey);
-      if (balance1 === 0 || balance2 === 0) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        if (balance1 === 0) await airdropAndConfirm(mint1.publicKey);
-        if (balance2 === 0) await airdropAndConfirm(mint2.publicKey);
-      }
 
       await program.methods
         .createCollection(
@@ -353,7 +324,7 @@ describe("Integration Tests", () => {
           systemProgram: SystemProgram.programId,
           rent: SYSVAR_RENT_PUBKEY,
         })
-        .signers([user, mint2])
+        .signers([user])
         .rpc();
 
       const collection1 = await program.account.collectionState.fetch(collection1PDA);
@@ -394,7 +365,7 @@ describe("Integration Tests", () => {
             systemProgram: SystemProgram.programId,
             rent: SYSVAR_RENT_PUBKEY,
           })
-          .signers([user, mint])
+          .signers([user])
           .rpc();
       }
       
