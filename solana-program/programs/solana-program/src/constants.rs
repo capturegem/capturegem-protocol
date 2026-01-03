@@ -37,6 +37,9 @@ pub const SEED_STAKING_POOL: &[u8] = b"staking_pool";
 #[constant]
 pub const SEED_STAKER_POSITION: &[u8] = b"staker_position";
 
+#[constant]
+pub const SEED_MODERATOR_STAKING_VAULT: &[u8] = b"moderator_staking_vault";
+
 // Time Constants
 pub const SECONDS_IN_DAY: i64 = 86400;
 pub const VIEW_RIGHTS_VALIDITY_SECONDS: i64 = 90 * SECONDS_IN_DAY; // 90 Days

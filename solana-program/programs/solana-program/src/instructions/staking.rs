@@ -1,6 +1,7 @@
 // solana-program/programs/solana-program/src/instructions/staking.rs
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{TokenInterface, TransferChecked, Mint};
+use anchor_spl::token_interface::{TokenInterface, TransferChecked, Mint, TokenAccount};
+use anchor_spl::associated_token::AssociatedToken;
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
@@ -20,9 +21,21 @@ pub struct StakeModerator<'info> {
     )]
     pub global_state: Account<'info, GlobalState>,
 
-    /// CHECK: Moderator's CAPGM token account
+    /// CHECK: Moderator's CAPGM token account (source)
     #[account(mut)]
     pub moderator_token_account: UncheckedAccount<'info>,
+
+    /// Moderator staking vault (PDA-owned ATA) - receives staked CAPGM tokens
+    #[account(
+        init_if_needed,
+        payer = moderator,
+        associated_token::mint = capgm_mint,
+        associated_token::authority = global_state,
+    )]
+    pub staking_vault: InterfaceAccount<'info, TokenAccount>,
+
+    /// CAPGM token mint (for transfer_checked)
+    pub capgm_mint: InterfaceAccount<'info, Mint>,
 
     #[account(
         init_if_needed,
@@ -34,6 +47,7 @@ pub struct StakeModerator<'info> {
     pub moderator_stake: Account<'info, ModeratorStake>,
 
     pub token_program: Interface<'info, TokenInterface>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
 
@@ -43,13 +57,36 @@ pub fn stake_moderator(
 ) -> Result<()> {
     let global_state = &ctx.accounts.global_state;
     let moderator_stake = &mut ctx.accounts.moderator_stake;
-    let _moderator_token_account = &ctx.accounts.moderator_token_account;
+    let capgm_mint = &ctx.accounts.capgm_mint;
+
+    // Verify the CAPGM mint matches the global state
+    require!(
+        capgm_mint.key() == global_state.capgm_mint,
+        ProtocolError::Unauthorized
+    );
 
     // Check if stake amount meets minimum requirement
     require!(
         stake_amount >= global_state.moderator_stake_minimum,
         ProtocolError::InsufficientModeratorStake
     );
+
+    // Transfer CAPGM tokens from moderator to staking vault
+    let transfer_ix = TransferChecked {
+        from: ctx.accounts.moderator_token_account.to_account_info(),
+        mint: capgm_mint.to_account_info(),
+        to: ctx.accounts.staking_vault.to_account_info(),
+        authority: ctx.accounts.moderator.to_account_info(),
+    };
+    let cpi_ctx = CpiContext::new(
+        ctx.accounts.token_program.to_account_info(),
+        transfer_ix,
+    );
+    anchor_spl::token_interface::transfer_checked(
+        cpi_ctx,
+        stake_amount,
+        capgm_mint.decimals,
+    )?;
 
     // Update or initialize moderator stake
     moderator_stake.moderator = ctx.accounts.moderator.key();
@@ -59,7 +96,12 @@ pub fn stake_moderator(
     moderator_stake.is_active = true;
     moderator_stake.bump = ctx.bumps.moderator_stake;
 
-    // In production: Transfer CAPGM tokens to a staking vault via CPI
+    msg!(
+        "ModeratorStaked: Moderator={} Amount={} TotalStaked={}",
+        ctx.accounts.moderator.key(),
+        stake_amount,
+        moderator_stake.stake_amount
+    );
 
     Ok(())
 }
@@ -69,6 +111,7 @@ pub struct SlashModerator<'info> {
     pub super_moderator: Signer<'info>,
 
     #[account(
+        mut,
         seeds = [SEED_GLOBAL_STATE],
         bump = global_state.bump,
         constraint = global_state.admin == super_moderator.key() @ ProtocolError::Unauthorized
@@ -84,10 +127,67 @@ pub struct SlashModerator<'info> {
 
     /// CHECK: Moderator being slashed
     pub moderator: UncheckedAccount<'info>,
+
+    /// Moderator staking vault (source of slashed tokens)
+    #[account(
+        mut,
+        associated_token::mint = capgm_mint,
+        associated_token::authority = global_state,
+    )]
+    pub staking_vault: InterfaceAccount<'info, TokenAccount>,
+
+    /// CHECK: Treasury token account (destination for slashed tokens)
+    #[account(mut)]
+    pub treasury_token_account: UncheckedAccount<'info>,
+
+    /// CAPGM token mint (for transfer_checked)
+    pub capgm_mint: InterfaceAccount<'info, Mint>,
+
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 pub fn slash_moderator(ctx: Context<SlashModerator>) -> Result<()> {
     let moderator_stake = &mut ctx.accounts.moderator_stake;
+    let global_state = &ctx.accounts.global_state;
+    let capgm_mint = &ctx.accounts.capgm_mint;
+
+    // Verify the CAPGM mint matches the global state
+    require!(
+        capgm_mint.key() == global_state.capgm_mint,
+        ProtocolError::Unauthorized
+    );
+
+    // Get the amount to slash before zeroing it out
+    let slash_amount = moderator_stake.stake_amount;
+    
+    require!(
+        slash_amount > 0,
+        ProtocolError::InsufficientFunds
+    );
+
+    // Transfer slashed tokens from staking vault to treasury using GlobalState PDA authority
+    let global_state_seeds = [
+        SEED_GLOBAL_STATE,
+        &[global_state.bump],
+    ];
+    let signer_seeds = &[&global_state_seeds[..]];
+
+    let transfer_ix = TransferChecked {
+        from: ctx.accounts.staking_vault.to_account_info(),
+        mint: capgm_mint.to_account_info(),
+        to: ctx.accounts.treasury_token_account.to_account_info(),
+        authority: ctx.accounts.global_state.to_account_info(),
+    };
+    let cpi_ctx = CpiContext::new_with_signer(
+        ctx.accounts.token_program.to_account_info(),
+        transfer_ix,
+        signer_seeds,
+    );
+    anchor_spl::token_interface::transfer_checked(
+        cpi_ctx,
+        slash_amount,
+        capgm_mint.decimals,
+    )?;
 
     // Slash the stake (set to 0 and deactivate)
     moderator_stake.stake_amount = 0;
@@ -96,9 +196,11 @@ pub fn slash_moderator(ctx: Context<SlashModerator>) -> Result<()> {
         .checked_add(1)
         .ok_or(ProtocolError::MathOverflow)?;
 
-    // In production: Burn or transfer slashed tokens to treasury via CPI
-
-    msg!("ModeratorSlashed: Moderator={}", ctx.accounts.moderator.key());
+    msg!(
+        "ModeratorSlashed: Moderator={} Amount={}",
+        ctx.accounts.moderator.key(),
+        slash_amount
+    );
 
     Ok(())
 }
