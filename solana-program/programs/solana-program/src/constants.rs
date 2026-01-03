@@ -54,6 +54,9 @@ pub const SPLIT_OWNER: u64 = 20;
 pub const SPLIT_PERFORMER: u64 = 20;
 pub const SPLIT_STAKERS: u64 = 10;
 
+// Default Purchase Fee (configurable via GlobalState)
+pub const DEFAULT_PURCHASE_FEE_BASIS_POINTS: u16 = 200; // 2% default purchase fee
+
 // Precision for reward calculations
 pub const REWARD_PRECISION: u128 = 1_000_000_000_000; // 1e12
 

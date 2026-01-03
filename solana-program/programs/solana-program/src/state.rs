@@ -14,7 +14,7 @@ pub struct GlobalState {
     pub node_registry_url: String, // URL for the node registry
     pub moderator_stake_minimum: u64, // Minimum CAPGM stake required to be a moderator
     pub capgm_mint: Pubkey,        // The CAPGM ecosystem token mint
-    pub fee_basis_points: u16,     // Protocol fee
+    pub fee_basis_points: u16,     // Purchase fee in basis points (default: 200 = 2%). Collected on purchases and sent to treasury. Configurable via update_global_state.
     pub updates_disabled: bool,    // If true, GlobalState can no longer be updated (one-way lock)
     pub bump: u8,
 }

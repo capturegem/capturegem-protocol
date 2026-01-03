@@ -26,6 +26,9 @@ pub struct InitializeGlobal<'info> {
     pub system_program: Program<'info, System>,
 }
 
+/// Initialize the protocol's GlobalState
+/// fee_basis_points: Purchase fee in basis points (default: 200 = 2%)
+///                    This fee is collected on purchases and can be updated via update_global_state
 pub fn initialize_protocol(
     ctx: Context<InitializeGlobal>, 
     indexer_url: String, 
@@ -35,6 +38,7 @@ pub fn initialize_protocol(
 ) -> Result<()> {
     require!(indexer_url.len() <= crate::state::MAX_URL_LEN, crate::errors::ProtocolError::StringTooLong);
     require!(registry_url.len() <= crate::state::MAX_URL_LEN, crate::errors::ProtocolError::StringTooLong);
+    require!(fee_basis_points <= 10000, crate::errors::ProtocolError::InvalidFeeConfig); // Max 100%
     
     let state = &mut ctx.accounts.global_state;
     state.admin = ctx.accounts.admin.key();
@@ -43,9 +47,11 @@ pub fn initialize_protocol(
     state.node_registry_url = registry_url;
     state.moderator_stake_minimum = mod_stake_min;
     state.capgm_mint = ctx.accounts.capgm_mint.key();
-    state.fee_basis_points = fee_basis_points;
+    state.fee_basis_points = fee_basis_points; // Purchase fee (default: 200 = 2%)
     state.updates_disabled = false; // Initially, updates are enabled
     state.bump = ctx.bumps.global_state;
+    
+    msg!("Protocol initialized with purchase fee: {} basis points ({}%)", fee_basis_points, fee_basis_points as f64 / 100.0);
     Ok(())
 }
 
@@ -72,6 +78,10 @@ pub struct UpdateGlobalState<'info> {
 
 /// Update GlobalState fields. Only the admin can call this, and only if updates are not disabled.
 /// All parameters are optional - only provided fields will be updated.
+/// 
+/// fee_basis_points: Purchase fee in basis points (e.g., 200 = 2%, 150 = 1.5%)
+///                   This fee is collected on purchases and sent to the treasury.
+///                   Must be <= 10000 (100% max).
 pub fn update_global_state(
     ctx: Context<UpdateGlobalState>,
     indexer_url: Option<String>,
@@ -97,7 +107,13 @@ pub fn update_global_state(
     }
     
     if let Some(fee_bp) = fee_basis_points {
+        require!(fee_bp <= 10000, crate::errors::ProtocolError::InvalidFeeConfig); // Max 100%
+        let old_fee = state.fee_basis_points;
         state.fee_basis_points = fee_bp;
+        msg!("Purchase fee updated: {} -> {} basis points ({}% -> {}%)", 
+             old_fee, fee_bp, 
+             old_fee as f64 / 100.0, 
+             fee_bp as f64 / 100.0);
     }
     
     // Update treasury if a different account is provided

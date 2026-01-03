@@ -1,11 +1,13 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_lang::solana_program::system_instruction;
-use anchor_spl::token_interface::{TokenInterface, TransferChecked, Burn, burn, Mint, TokenAccount};
+use anchor_spl::token_interface::{TokenInterface, TransferChecked, Burn, burn, Mint, TokenAccount, MintTo, mint_to};
 use anchor_spl::token_2022::{self, Token2022};
+use anchor_spl::associated_token::AssociatedToken;
 use spl_token_2022::extension::{ExtensionType, StateWithExtensionsMut, BaseStateWithExtensionsMut};
 use spl_token_2022::state::Mint as MintState;
-use spl_token_2022::instruction::transfer_checked as spl_transfer_checked;
+use spl_token_2022::instruction::{transfer_checked as spl_transfer_checked, set_authority};
+use spl_token_2022::instruction::AuthorityType;
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
@@ -78,16 +80,38 @@ pub struct PurchaseAccess<'info> {
     )]
     pub access_nft_mint: AccountInfo<'info>,
 
-    /// CHECK: Purchaser's NFT token account (will be created to hold the access NFT)
-    #[account(mut)]
-    pub purchaser_nft_account: UncheckedAccount<'info>,
+    /// Purchaser's NFT token account (Associated Token Account for the access NFT)
+    #[account(
+        init_if_needed,
+        payer = purchaser,
+        associated_token::mint = access_nft_mint,
+        associated_token::authority = purchaser,
+    )]
+    pub purchaser_nft_account: InterfaceAccount<'info, TokenAccount>,
 
     /// Collection token mint (for transfer_checked)
     pub collection_mint: InterfaceAccount<'info, Mint>,
 
+    /// Global state to get treasury address
+    #[account(
+        seeds = [SEED_GLOBAL_STATE],
+        bump = global_state.bump
+    )]
+    pub global_state: Account<'info, GlobalState>,
+
+    /// Treasury's collection token account (receives purchase fee, configurable via GlobalState)
+    /// CHECK: Validated against global_state.treasury
+    #[account(
+        mut,
+        constraint = treasury_token_account.owner == global_state.treasury @ ProtocolError::Unauthorized,
+        constraint = treasury_token_account.mint == collection_mint.key() @ ProtocolError::Unauthorized
+    )]
+    pub treasury_token_account: InterfaceAccount<'info, TokenAccount>,
+
     pub token_program: Interface<'info, TokenInterface>,
     /// Token-2022 program for NFT with extensions
     pub token_2022_program: Program<'info, Token2022>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>,
     pub clock: Sysvar<'info, Clock>,
@@ -115,51 +139,39 @@ pub fn purchase_access(
         ProtocolError::Unauthorized
     );
 
-    // Calculate 50/50 split
-    let amount_to_stakers = total_amount
+    // ============================================================================
+    // Calculate Purchase Fee (configurable via GlobalState) - Only on purchases/sales
+    // Fees are manually collected and sent to treasury, not automatically deducted
+    // Default is 2% (200 basis points), but can be updated by admin via update_global_state
+    // ============================================================================
+    let fee_basis_points = ctx.accounts.global_state.fee_basis_points as u64;
+    let fee_denominator = 10000u64;
+    
+    // Calculate total fee on purchase (ceiling division to favor treasury)
+    let total_fee = total_amount
+        .checked_mul(fee_basis_points)
+        .ok_or(ProtocolError::MathOverflow)?
+        .checked_add(fee_denominator - 1) // Add denominator - 1 for ceiling division
+        .ok_or(ProtocolError::MathOverflow)?
+        .checked_div(fee_denominator)
+        .ok_or(ProtocolError::MathOverflow)?;
+    
+    // Amount after fee deduction
+    let amount_after_fee = total_amount
+        .checked_sub(total_fee)
+        .ok_or(ProtocolError::MathOverflow)?;
+
+    // Calculate 50/50 split of remaining amount (after fee)
+    let amount_to_stakers = amount_after_fee
         .checked_mul(SPLIT_TO_STAKERS)
         .ok_or(ProtocolError::MathOverflow)?
         .checked_div(100)
         .ok_or(ProtocolError::MathOverflow)?;
     
-    let amount_to_escrow = total_amount
+    let amount_to_escrow = amount_after_fee
         .checked_mul(SPLIT_TO_PEERS_ESCROW)
         .ok_or(ProtocolError::MathOverflow)?
         .checked_div(100)
-        .ok_or(ProtocolError::MathOverflow)?;
-
-    // ============================================================================
-    // CRITICAL: Calculate Transfer Fee deduction (1.5% = 150 basis points)
-    // Token-2022 will automatically deduct 1.5% on each transfer, so we must
-    // account for this in our state updates to prevent insolvency.
-    // ============================================================================
-    let fee_basis_points = 150u64; // 1.5% transfer fee (matches create_collection)
-    let fee_denominator = 10000u64;
-
-    // Calculate fees and net amounts for staking pool transfer
-    // Use ceiling division to favor the fee collector and prevent micro-insolvency
-    let staker_fee = amount_to_stakers
-        .checked_mul(fee_basis_points)
-        .ok_or(ProtocolError::MathOverflow)?
-        .checked_add(fee_denominator - 1) // Add denominator - 1 for ceiling division
-        .ok_or(ProtocolError::MathOverflow)?
-        .checked_div(fee_denominator)
-        .ok_or(ProtocolError::MathOverflow)?;
-    let net_to_stakers = amount_to_stakers
-        .checked_sub(staker_fee)
-        .ok_or(ProtocolError::MathOverflow)?;
-
-    // Calculate fees and net amounts for escrow transfer
-    // Use ceiling division to favor the fee collector and prevent micro-insolvency
-    let escrow_fee = amount_to_escrow
-        .checked_mul(fee_basis_points)
-        .ok_or(ProtocolError::MathOverflow)?
-        .checked_add(fee_denominator - 1) // Add denominator - 1 for ceiling division
-        .ok_or(ProtocolError::MathOverflow)?
-        .checked_div(fee_denominator)
-        .ok_or(ProtocolError::MathOverflow)?;
-    let net_to_escrow = amount_to_escrow
-        .checked_sub(escrow_fee)
         .ok_or(ProtocolError::MathOverflow)?;
 
     // ============================================================================
@@ -210,13 +222,55 @@ pub fn purchase_access(
 
     msg!("NonTransferable Access NFT mint created: {}", ctx.accounts.access_nft_mint.key());
 
-    // TODO: In production, also:
-    // 1. Create purchaser_nft_account (associated token account)
-    // 2. Mint 1 token to purchaser_nft_account
-    // 3. Add Metaplex metadata with collection info, purchased_at timestamp
-    // 4. Revoke mint authority (so supply stays at 1)
+    // ============================================================================
+    // CRITICAL: Mint 1 token to purchaser's Associated Token Account
+    // ============================================================================
     
-    // For now, we store the mint address and log the event
+    // The ATA is automatically created via init_if_needed constraint above
+    // Now mint exactly 1 token to the purchaser's ATA
+    let mint_to_accounts = MintTo {
+        mint: ctx.accounts.access_nft_mint.to_account_info(),
+        to: ctx.accounts.purchaser_nft_account.to_account_info(),
+        authority: ctx.accounts.purchaser.to_account_info(),
+    };
+    let mint_to_ctx = CpiContext::new(
+        ctx.accounts.token_2022_program.to_account_info(),
+        mint_to_accounts,
+    );
+    mint_to(mint_to_ctx, 1)?; // Mint exactly 1 token (NFT)
+    
+    msg!("Minted 1 Access NFT token to purchaser: {}", ctx.accounts.purchaser.key());
+
+    // ============================================================================
+    // CRITICAL: Revoke mint authority to prevent additional minting
+    // This ensures the supply stays at exactly 1 (making it a true NFT)
+    // ============================================================================
+    
+    let purchaser_key = ctx.accounts.purchaser.key();
+    let mint_key = ctx.accounts.access_nft_mint.key();
+    
+    let set_authority_ix = set_authority(
+        ctx.accounts.token_2022_program.key,
+        &mint_key,
+        None, // New authority = None (revoked)
+        AuthorityType::MintTokens,
+        &purchaser_key, // Current authority (must sign)
+        &[], // Signers array (empty since purchaser signs the transaction)
+    )?;
+    
+    invoke_signed(
+        &set_authority_ix,
+        &[
+            ctx.accounts.access_nft_mint.to_account_info(),
+            ctx.accounts.purchaser.to_account_info(),
+            ctx.accounts.token_2022_program.to_account_info(),
+        ],
+        &[],
+    )?;
+    
+    msg!("Revoked mint authority for Access NFT: {}", ctx.accounts.access_nft_mint.key());
+    
+    // Store the mint address for escrow reference
     let nft_mint_key = ctx.accounts.access_nft_mint.key();
 
     // ============================================================================
@@ -227,14 +281,29 @@ pub fn purchase_access(
     access_escrow.collection = collection.key();
     access_escrow.access_nft_mint = nft_mint_key;
     access_escrow.cid_hash = cid_hash;
-    // CRITICAL: Store NET amount (after transfer fee) to match actual balance
-    access_escrow.amount_locked = net_to_escrow;
+    access_escrow.amount_locked = amount_to_escrow; // Full amount (no fees deducted)
     access_escrow.created_at = clock.unix_timestamp;
     access_escrow.is_cid_revealed = false;
     access_escrow.bump = ctx.bumps.access_escrow;
 
     // ============================================================================
-    // STEP 3: Transfer 50% to staking pool
+    // STEP 3: Transfer purchase fee to treasury (manual fee collection on purchases)
+    // Fee percentage is configurable via GlobalState.fee_basis_points
+    // ============================================================================
+    
+    if total_fee > 0 {
+        let transfer_fee = TransferChecked {
+            from: ctx.accounts.purchaser_token_account.to_account_info(),
+            mint: ctx.accounts.collection_mint.to_account_info(),
+            to: ctx.accounts.treasury_token_account.to_account_info(),
+            authority: ctx.accounts.purchaser.to_account_info(),
+        };
+        let cpi_ctx_fee = CpiContext::new(ctx.accounts.token_program.to_account_info(), transfer_fee);
+        anchor_spl::token_interface::transfer_checked(cpi_ctx_fee, total_fee, ctx.accounts.collection_mint.decimals)?;
+    }
+
+    // ============================================================================
+    // STEP 4: Transfer 50% to staking pool (after fee deduction)
     // ============================================================================
     
     let transfer_to_pool = TransferChecked {
@@ -246,10 +315,9 @@ pub fn purchase_access(
     let cpi_ctx_pool = CpiContext::new(ctx.accounts.token_program.to_account_info(), transfer_to_pool);
     anchor_spl::token_interface::transfer_checked(cpi_ctx_pool, amount_to_stakers, ctx.accounts.collection_mint.decimals)?;
 
-    // Distribute rewards to stakers
-    // CRITICAL: Use NET amount (after transfer fee) to match actual tokens received
+    // Distribute rewards to stakers (full amount, no fees deducted)
     if staking_pool.total_staked > 0 {
-        let reward_increment = (net_to_stakers as u128)
+        let reward_increment = (amount_to_stakers as u128)
             .checked_mul(REWARD_PRECISION)
             .ok_or(ProtocolError::MathOverflow)?
             .checked_div(staking_pool.total_staked as u128)
@@ -261,7 +329,7 @@ pub fn purchase_access(
     }
 
     // ============================================================================
-    // STEP 4: Transfer 50% to escrow
+    // STEP 5: Transfer 50% to escrow (after fee deduction)
     // ============================================================================
     
     let transfer_to_escrow = TransferChecked {
@@ -274,17 +342,14 @@ pub fn purchase_access(
     anchor_spl::token_interface::transfer_checked(cpi_ctx_escrow, amount_to_escrow, ctx.accounts.collection_mint.decimals)?;
 
     msg!(
-        "AccessPurchased: Purchaser={} Collection={} NFT={} Total={} GrossToStakers={} NetToStakers={} GrossToEscrow={} NetToEscrow={} StakerFee={} EscrowFee={} ExpiresAt={}",
+        "AccessPurchased: Purchaser={} Collection={} NFT={} Total={} Fee={} ToStakers={} ToEscrow={} ExpiresAt={}",
         ctx.accounts.purchaser.key(),
         collection.collection_id,
         nft_mint_key,
         total_amount,
+        total_fee,
         amount_to_stakers,
-        net_to_stakers,
         amount_to_escrow,
-        net_to_escrow,
-        staker_fee,
-        escrow_fee,
         clock.unix_timestamp + ESCROW_EXPIRY_SECONDS
     );
 
@@ -463,28 +528,6 @@ pub fn release_escrow<'info>(
 
     let amount_locked = access_escrow.amount_locked;
     
-    // ============================================================================
-    // CRITICAL: Account for Transfer Fees on peer payments
-    // 
-    // The escrow balance (amount_locked) is the NET amount after the initial
-    // transfer fee. When we send tokens to peers, Token-2022 will deduct a 1.5%
-    // fee from the escrow for each transfer.
-    //
-    // IMPORTANT: The fee is deducted from the SOURCE (escrow), so if we send
-    // X tokens, the escrow balance decreases by X (gross), and the peer receives
-    // X - (X * 1.5%) = X * 0.985 (net).
-    //
-    // Since amount_locked is the net balance, we can only send up to amount_locked
-    // total. We distribute amount_locked proportionally to peers. Each peer will
-    // receive their share minus the 1.5% fee, but they remain proportional.
-    //
-    // Example: amount_locked = 49.25, 2 peers with equal weights
-    // - Peer 1 gets: 24.625 gross → receives 24.255625 net (fee: 0.369375)
-    // - Peer 2 gets: 24.625 gross → receives 24.255625 net (fee: 0.369375)
-    // - Total sent: 49.25 (matches amount_locked)
-    // - Total fees: 0.73875 (goes to treasury)
-    // ============================================================================
-    
     // Get all keys and data before the loop to avoid lifetime issues
     let escrow_token_account_key = *ctx.accounts.escrow_token_account.key;
     let token_program_key = *ctx.accounts.token_program.key;
@@ -519,12 +562,10 @@ pub fn release_escrow<'info>(
 
     // Track total amount sent to ensure we don't exceed escrow balance
     let mut total_sent = 0u64;
-    let fee_basis_points = 150u64; // 1.5% transfer fee
-    let fee_denominator = 10000u64;
     
     for (i, peer_wallet) in peer_wallets.iter().enumerate() {
         let weight = peer_weights[i];
-        // Calculate peer's proportional share of amount_locked (net balance)
+        // Calculate peer's proportional share of amount_locked (no fees deducted)
         let peer_share = amount_locked
             .checked_mul(weight)
             .ok_or(ProtocolError::MathOverflow)?
@@ -542,13 +583,6 @@ pub fn release_escrow<'info>(
         } else {
             peer_share
         };
-        
-        // Calculate the net amount peer will receive (after 1.5% fee deduction)
-        let peer_net_received = peer_amount
-            .checked_mul(fee_denominator - fee_basis_points)
-            .ok_or(ProtocolError::MathOverflow)?
-            .checked_div(fee_denominator)
-            .ok_or(ProtocolError::MathOverflow)?;
 
         if peer_amount > 0 {
             let account_idx = i * 2;
@@ -640,21 +674,15 @@ pub fn release_escrow<'info>(
                 signer_seeds,
             )?;
 
-            // Update total sent (track gross amount, as that's what leaves the escrow)
+            // Update total sent
             total_sent = total_sent
                 .checked_add(peer_amount)
                 .ok_or(ProtocolError::MathOverflow)?;
             
-            let peer_fee = peer_amount
-                .checked_sub(peer_net_received)
-                .ok_or(ProtocolError::MathOverflow)?;
-            
             msg!(
-                "PeerPayment: Peer={} GrossSent={} NetReceived={} Fee={} Weight={} TrustScore={}",
+                "PeerPayment: Peer={} Amount={} Weight={} TrustScore={}",
                 peer_wallet,
                 peer_amount,
-                peer_net_received,
-                peer_fee,
                 weight,
                 trust_score_update
             );

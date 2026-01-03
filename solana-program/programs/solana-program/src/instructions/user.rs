@@ -6,7 +6,6 @@ use crate::errors::ProtocolError;
 use crate::constants::*;
 use spl_token_2022::extension::ExtensionType;
 use spl_token_2022::instruction::initialize_mint;
-use spl_token_2022::extension::transfer_fee::instruction::initialize_transfer_fee_config;
 
 #[derive(Accounts)]
 #[instruction(collection_id: String, name: String, cid_hash: [u8; 32], access_threshold_usd: u64)]
@@ -104,21 +103,19 @@ pub fn create_collection(
     collection.tokens_minted = false; // Tokens not yet minted
     collection.bump = ctx.bumps.collection;
 
-    // --- MANUAL MINT CREATION WITH TRANSFER FEE EXTENSION START ---
+    // --- MANUAL MINT CREATION (NO TRANSFER FEE EXTENSION) ---
+    // NOTE: Transfer fees are now manually collected only on purchases/sales,
+    // not on staking or normal transfers. This allows fees to be selective.
 
-    // 1. Define Transfer Fee Config (1.5% = 150 basis points)
-    let fee_basis_points = 150; // 1.5%
-    let max_fee = u64::MAX;     // Cap on fees (optional, set to MAX for no cap)
-    
-    // 2. Calculate space required for Mint + TransferFeeConfig extension
+    // 1. Calculate space required for Mint (standard Token-2022, no extensions)
     let space = ExtensionType::try_calculate_account_len::<spl_token_2022::state::Mint>(
-        &[ExtensionType::TransferFeeConfig],
+        &[], // No extensions
     ).map_err(|_| ProtocolError::MathOverflow)?;
 
-    // 3. Calculate Rent
+    // 2. Calculate Rent
     let rent_lamports = ctx.accounts.rent.minimum_balance(space);
 
-    // 4. Prepare Seeds for Signing (Mint is a PDA of Collection)
+    // 3. Prepare Seeds for Signing (Mint is a PDA of Collection)
     let seeds = &[
         b"mint",
         ctx.accounts.collection.to_account_info().key.as_ref(),
@@ -126,7 +123,7 @@ pub fn create_collection(
     ];
     let signer = &[&seeds[..]];
 
-    // 5. Create the Account (System Program CPI)
+    // 4. Create the Account (System Program CPI)
     anchor_lang::solana_program::program::invoke_signed(
         &anchor_lang::solana_program::system_instruction::create_account(
             ctx.accounts.owner.key,
@@ -143,25 +140,7 @@ pub fn create_collection(
         signer,
     )?;
 
-    // 6. Initialize Transfer Fee Extension
-    // CRITICAL: This must be called BEFORE initialize_mint
-    anchor_lang::solana_program::program::invoke_signed(
-        &initialize_transfer_fee_config(
-            ctx.accounts.token_program.key,
-            ctx.accounts.mint.key,
-            Some(ctx.accounts.treasury.key), // Config Authority (can update fees later)
-            Some(ctx.accounts.treasury.key), // Withdraw Authority (receives withheld fees)
-            fee_basis_points,
-            max_fee,
-        )?,
-        &[
-            ctx.accounts.mint.to_account_info(),
-            ctx.accounts.treasury.to_account_info(), 
-        ],
-        signer,
-    )?;
-
-    // 7. Initialize the Mint (Standard Token-2022)
+    // 5. Initialize the Mint (Standard Token-2022, no transfer fee extension)
     anchor_lang::solana_program::program::invoke_signed(
         &initialize_mint(
             ctx.accounts.token_program.key,
@@ -178,10 +157,10 @@ pub fn create_collection(
         signer,
     )?;
 
-    // --- MANUAL MINT CREATION WITH TRANSFER FEE EXTENSION END ---
+    // --- MANUAL MINT CREATION END ---
 
     msg!(
-        "CollectionCreated: ID={} Owner={} CidHashSet=true Mint={} TransferFee=1.5%",
+        "CollectionCreated: ID={} Owner={} CidHashSet=true Mint={} ManualFees=ConfigurableViaGlobalState",
         collection_id,
         owner_key,
         ctx.accounts.mint.key()
