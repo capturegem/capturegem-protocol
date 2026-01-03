@@ -19,6 +19,7 @@ import {
   getPinnerStatePDA,
   getModTicketPDA,
   getModeratorStakePDA,
+  provider,
 } from "./helpers/setup";
 import {
   INDEXER_URL,
@@ -44,38 +45,47 @@ describe("Integration Tests", () => {
 
   describe("Complete User Flow", () => {
     it("Initialize protocol → Create user → Create collection → Upload video", async () => {
-      // 1. Initialize protocol
+      // 1. Initialize protocol (if not already initialized)
       const [globalStatePDA] = getGlobalStatePDA();
-      await program.methods
-        .initializeProtocol(INDEXER_URL, REGISTRY_URL, MOD_STAKE_MIN, FEE_BASIS_POINTS)
-        .accounts({
-          admin: admin.publicKey,
-          globalState: globalStatePDA,
-          treasury: treasury.publicKey,
-          capgmMint: capgmMint.publicKey,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([admin])
-        .rpc();
+      try {
+        await program.account.globalState.fetch(globalStatePDA);
+      } catch {
+        await program.methods
+          .initializeProtocol(INDEXER_URL, REGISTRY_URL, MOD_STAKE_MIN, FEE_BASIS_POINTS)
+          .accounts({
+            admin: admin.publicKey,
+            globalState: globalStatePDA,
+            treasury: treasury.publicKey,
+            capgmMint: capgmMint.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([admin])
+          .rpc();
+      }
 
-      // 2. Initialize user account
+      // 2. Initialize user account (if not already initialized)
       const [userAccountPDA] = getUserAccountPDA(user.publicKey);
-      await program.methods
-        .initializeUserAccount(IPNS_KEY)
-        .accounts({
-          authority: user.publicKey,
-          userAccount: userAccountPDA,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([user])
-        .rpc();
+      try {
+        await program.account.userAccount.fetch(userAccountPDA);
+      } catch {
+        await program.methods
+          .initializeUserAccount(IPNS_KEY)
+          .accounts({
+            authority: user.publicKey,
+            userAccount: userAccountPDA,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+      }
 
-      // 3. Create collection
-      const [collectionPDA] = getCollectionPDA(user.publicKey, COLLECTION_ID);
+      // 3. Create collection (use unique ID to avoid conflicts)
+      const uniqueCollectionId = `collection-${Date.now()}`;
+      const [collectionPDA] = getCollectionPDA(user.publicKey, uniqueCollectionId);
       const mint = Keypair.generate();
       await program.methods
         .createCollection(
-          COLLECTION_ID,
+          uniqueCollectionId,
           COLLECTION_NAME,
           CONTENT_CID,
           ACCESS_THRESHOLD_USD,
@@ -116,7 +126,38 @@ describe("Integration Tests", () => {
 
   describe("Complete Pinner Flow", () => {
     it("Register → Submit audit → Claim rewards", async () => {
+      // Ensure prerequisites exist
+      const { ensureProtocolInitialized, ensureUserAccountInitialized } = await import("./helpers/setup");
+      await ensureProtocolInitialized();
+      await ensureUserAccountInitialized(user);
+      
+      // Create collection if it doesn't exist
       const [collectionPDA] = getCollectionPDA(user.publicKey, COLLECTION_ID);
+      try {
+        await program.account.collectionState.fetch(collectionPDA);
+      } catch {
+        const mint = Keypair.generate();
+        await program.methods
+          .createCollection(
+            COLLECTION_ID,
+            COLLECTION_NAME,
+            CONTENT_CID,
+            ACCESS_THRESHOLD_USD,
+            MAX_VIDEO_LIMIT
+          )
+          .accounts({
+            owner: user.publicKey,
+            collection: collectionPDA,
+            oracleFeed: oracleFeed.publicKey,
+            mint: mint.publicKey,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            rent: SYSVAR_RENT_PUBKEY,
+          })
+          .signers([user, mint])
+          .rpc();
+      }
+      
       const [pinnerStatePDA] = getPinnerStatePDA(pinner.publicKey, collectionPDA);
 
       // 1. Register pinner
@@ -162,35 +203,49 @@ describe("Integration Tests", () => {
 
   describe("Complete Moderation Flow", () => {
     it("Create ticket → Stake moderator → Resolve ticket", async () => {
+      // Ensure protocol is initialized
+      const { ensureProtocolInitialized } = await import("./helpers/setup");
+      await ensureProtocolInitialized();
+      
       const [globalStatePDA] = getGlobalStatePDA();
-      const [ticketPDA] = getModTicketPDA(TARGET_ID);
+      // Use unique target ID to avoid conflicts
+      const uniqueTargetId = `target-${Date.now()}`;
+      const [ticketPDA] = getModTicketPDA(uniqueTargetId);
       const [moderatorStakePDA] = getModeratorStakePDA(moderator.publicKey);
 
       // 1. Create ticket
-      await program.methods
-        .createTicket(TARGET_ID, { contentReport: {} }, REASON)
-        .accounts({
-          reporter: user.publicKey,
-          ticket: ticketPDA,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([user])
-        .rpc();
+      try {
+        await program.account.modTicket.fetch(ticketPDA);
+      } catch {
+        await program.methods
+          .createTicket(uniqueTargetId, { contentReport: {} }, REASON)
+          .accounts({
+            reporter: user.publicKey,
+            ticket: ticketPDA,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+      }
 
-      // 2. Stake moderator
-      const moderatorTokenAccount = Keypair.generate().publicKey;
-      await program.methods
-        .stakeModerator(MOD_STAKE_MIN)
-        .accounts({
-          moderator: moderator.publicKey,
-          globalState: globalStatePDA,
-          moderatorTokenAccount: moderatorTokenAccount,
-          moderatorStake: moderatorStakePDA,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([moderator])
-        .rpc();
+      // 2. Stake moderator (if not already staked)
+      try {
+        await program.account.moderatorStake.fetch(moderatorStakePDA);
+      } catch {
+        const moderatorTokenAccount = Keypair.generate().publicKey;
+        await program.methods
+          .stakeModerator(MOD_STAKE_MIN)
+          .accounts({
+            moderator: moderator.publicKey,
+            globalState: globalStatePDA,
+            moderatorTokenAccount: moderatorTokenAccount,
+            moderatorStake: moderatorStakePDA,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([moderator])
+          .rpc();
+      }
 
       // 3. Resolve ticket
       await program.methods
@@ -212,14 +267,22 @@ describe("Integration Tests", () => {
 
   describe("Edge Cases", () => {
     it("Multiple collections per owner", async () => {
-      const [collection1PDA] = getCollectionPDA(user.publicKey, "collection-1");
-      const [collection2PDA] = getCollectionPDA(user.publicKey, "collection-2");
+      // Ensure prerequisites
+      const { ensureProtocolInitialized, ensureUserAccountInitialized } = await import("./helpers/setup");
+      await ensureProtocolInitialized();
+      await ensureUserAccountInitialized(user);
+      
+      // Use unique collection IDs to avoid conflicts
+      const uniqueId1 = `collection-1-${Date.now()}`;
+      const uniqueId2 = `collection-2-${Date.now()}`;
+      const [collection1PDA] = getCollectionPDA(user.publicKey, uniqueId1);
+      const [collection2PDA] = getCollectionPDA(user.publicKey, uniqueId2);
       const mint1 = Keypair.generate();
       const mint2 = Keypair.generate();
 
       await program.methods
         .createCollection(
-          "collection-1",
+          uniqueId1,
           "Collection 1",
           CONTENT_CID,
           ACCESS_THRESHOLD_USD,
@@ -239,7 +302,7 @@ describe("Integration Tests", () => {
 
       await program.methods
         .createCollection(
-          "collection-2",
+          uniqueId2,
           "Collection 2",
           CONTENT_CID,
           ACCESS_THRESHOLD_USD,
@@ -259,13 +322,47 @@ describe("Integration Tests", () => {
 
       const collection1 = await program.account.collectionState.fetch(collection1PDA);
       const collection2 = await program.account.collectionState.fetch(collection2PDA);
-      expect(collection1.collectionId).to.equal("collection-1");
-      expect(collection2.collectionId).to.equal("collection-2");
+      expect(collection1.collectionId).to.equal(uniqueId1);
+      expect(collection2.collectionId).to.equal(uniqueId2);
     });
 
     it("Multiple pinners per collection", async () => {
+      // Ensure prerequisites
+      const { ensureProtocolInitialized, ensureUserAccountInitialized } = await import("./helpers/setup");
+      await ensureProtocolInitialized();
+      await ensureUserAccountInitialized(user);
+      
+      // Create collection if it doesn't exist
       const [collectionPDA] = getCollectionPDA(user.publicKey, COLLECTION_ID);
+      try {
+        await program.account.collectionState.fetch(collectionPDA);
+      } catch {
+        const mint = Keypair.generate();
+        await program.methods
+          .createCollection(
+            COLLECTION_ID,
+            COLLECTION_NAME,
+            CONTENT_CID,
+            ACCESS_THRESHOLD_USD,
+            MAX_VIDEO_LIMIT
+          )
+          .accounts({
+            owner: user.publicKey,
+            collection: collectionPDA,
+            oracleFeed: oracleFeed.publicKey,
+            mint: mint.publicKey,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            rent: SYSVAR_RENT_PUBKEY,
+          })
+          .signers([user, mint])
+          .rpc();
+      }
+      
       const pinner2 = Keypair.generate();
+      await provider.connection.requestAirdrop(pinner2.publicKey, 10 * 1e9);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       const [pinner1StatePDA] = getPinnerStatePDA(pinner.publicKey, collectionPDA);
       const [pinner2StatePDA] = getPinnerStatePDA(pinner2.publicKey, collectionPDA);
 

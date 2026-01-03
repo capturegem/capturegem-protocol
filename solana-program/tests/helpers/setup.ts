@@ -98,3 +98,57 @@ export const getModeratorStakePDA = (moderator: PublicKey): [PublicKey, number] 
     program.programId
   );
 };
+
+// Helper to check if an account exists
+export async function accountExists(accountPubkey: PublicKey): Promise<boolean> {
+  try {
+    const accountInfo = await provider.connection.getAccountInfo(accountPubkey);
+    return accountInfo !== null;
+  } catch {
+    return false;
+  }
+}
+
+// Helper to initialize protocol if not already initialized
+export async function ensureProtocolInitialized(): Promise<void> {
+  const [globalStatePDA] = getGlobalStatePDA();
+  const exists = await accountExists(globalStatePDA);
+  
+  if (!exists) {
+    const { SystemProgram } = await import("@solana/web3.js");
+    const { INDEXER_URL, REGISTRY_URL, MOD_STAKE_MIN, FEE_BASIS_POINTS } = await import("./constants");
+    
+    await program.methods
+      .initializeProtocol(INDEXER_URL, REGISTRY_URL, MOD_STAKE_MIN, FEE_BASIS_POINTS)
+      .accounts({
+        admin: admin.publicKey,
+        globalState: globalStatePDA,
+        treasury: treasury.publicKey,
+        capgmMint: capgmMint.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([admin])
+      .rpc();
+  }
+}
+
+// Helper to initialize user account if not already initialized
+export async function ensureUserAccountInitialized(userKey: Keypair): Promise<void> {
+  const [userAccountPDA] = getUserAccountPDA(userKey.publicKey);
+  const exists = await accountExists(userAccountPDA);
+  
+  if (!exists) {
+    const { SystemProgram } = await import("@solana/web3.js");
+    const { IPNS_KEY } = await import("./constants");
+    
+    await program.methods
+      .initializeUserAccount(IPNS_KEY)
+      .accounts({
+        authority: userKey.publicKey,
+        userAccount: userAccountPDA,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([userKey])
+      .rpc();
+  }
+}

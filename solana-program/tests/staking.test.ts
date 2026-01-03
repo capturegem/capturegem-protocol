@@ -8,6 +8,7 @@ import {
   setupAccounts,
   getGlobalStatePDA,
   getModeratorStakePDA,
+  provider,
 } from "./helpers/setup";
 import { MOD_STAKE_MIN } from "./helpers/constants";
 import * as anchor from "@coral-xyz/anchor";
@@ -17,6 +18,11 @@ describe("Moderator Staking", () => {
 
   before(async () => {
     await setupAccounts();
+    
+    // Ensure protocol is initialized
+    const { ensureProtocolInitialized } = await import("./helpers/setup");
+    await ensureProtocolInitialized();
+    
     [globalStatePDA] = getGlobalStatePDA();
   });
 
@@ -47,7 +53,12 @@ describe("Moderator Staking", () => {
     });
 
     it("Fails if stake_amount < moderator_stake_minimum", async () => {
-      const [moderatorStakePDA] = getModeratorStakePDA(Keypair.generate().publicKey);
+      // Use a different moderator to avoid conflicts
+      const testModerator = Keypair.generate();
+      await provider.connection.requestAirdrop(testModerator.publicKey, 10 * 1e9);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      const [moderatorStakePDA] = getModeratorStakePDA(testModerator.publicKey);
       const moderatorTokenAccount = Keypair.generate().publicKey;
       const insufficientStake = MOD_STAKE_MIN.sub(new anchor.BN(1));
 
@@ -55,14 +66,14 @@ describe("Moderator Staking", () => {
         await program.methods
           .stakeModerator(insufficientStake)
           .accounts({
-            moderator: moderator.publicKey,
+            moderator: testModerator.publicKey,
             globalState: globalStatePDA,
             moderatorTokenAccount: moderatorTokenAccount,
             moderatorStake: moderatorStakePDA,
             tokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
           })
-          .signers([moderator])
+          .signers([testModerator])
           .rpc();
         expect.fail("Should have failed");
       } catch (err: any) {

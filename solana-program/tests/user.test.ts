@@ -45,17 +45,22 @@ describe("User Account & Collection", () => {
 
     it("Fails if ipns_key exceeds MAX_IPNS_KEY_LEN", async () => {
       const longKey = "a".repeat(101); // MAX_IPNS_KEY_LEN is 100
-      const [userAccountPDA] = getUserAccountPDA(user.publicKey);
+      // Use a different user to avoid "already initialized" error
+      const testUser = Keypair.generate();
+      await provider.connection.requestAirdrop(testUser.publicKey, 10 * 1e9);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      const [userAccountPDA] = getUserAccountPDA(testUser.publicKey);
 
       try {
         await program.methods
           .initializeUserAccount(longKey)
           .accounts({
-            authority: user.publicKey,
+            authority: testUser.publicKey,
             userAccount: userAccountPDA,
             systemProgram: SystemProgram.programId,
           })
-          .signers([user])
+          .signers([testUser])
           .rpc();
         expect.fail("Should have failed");
       } catch (err: any) {
@@ -64,8 +69,25 @@ describe("User Account & Collection", () => {
     });
 
     it("Fails if called twice for same user (already initialized)", async () => {
+      // Ensure user account is initialized first
       const [userAccountPDA] = getUserAccountPDA(user.publicKey);
+      try {
+        await program.account.userAccount.fetch(userAccountPDA);
+        // Account exists, try to initialize again
+      } catch {
+        // Account doesn't exist, initialize it first
+        await program.methods
+          .initializeUserAccount(IPNS_KEY)
+          .accounts({
+            authority: user.publicKey,
+            userAccount: userAccountPDA,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+      }
 
+      // Now try to initialize again - should fail
       try {
         await program.methods
           .initializeUserAccount(IPNS_KEY)
@@ -84,6 +106,13 @@ describe("User Account & Collection", () => {
   });
 
   describe("Collection Creation", () => {
+    before(async () => {
+      // Ensure protocol and user account are initialized
+      const { ensureProtocolInitialized, ensureUserAccountInitialized } = await import("./helpers/setup");
+      await ensureProtocolInitialized();
+      await ensureUserAccountInitialized(user);
+    });
+
     it("Successfully creates collection", async () => {
       const [collectionPDA] = getCollectionPDA(user.publicKey, COLLECTION_ID);
       const mint = Keypair.generate();

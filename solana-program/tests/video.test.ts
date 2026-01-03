@@ -1,5 +1,6 @@
 import { expect } from "chai";
-import { SystemProgram, SYSVAR_CLOCK_PUBKEY } from "@solana/web3.js";
+import { Keypair, SystemProgram, SYSVAR_CLOCK_PUBKEY, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import {
   program,
   user,
@@ -7,6 +8,7 @@ import {
   setupAccounts,
   getCollectionPDA,
   getVideoPDA,
+  oracleFeed,
 } from "./helpers/setup";
 import {
   COLLECTION_ID,
@@ -20,7 +22,43 @@ describe("Video Upload", () => {
 
   before(async () => {
     await setupAccounts();
+    
+    // Ensure protocol and user account are initialized
+    const { ensureProtocolInitialized, ensureUserAccountInitialized } = await import("./helpers/setup");
+    await ensureProtocolInitialized();
+    await ensureUserAccountInitialized(user);
+    
+    // Create a collection for testing
+    const { COLLECTION_NAME, CONTENT_CID, ACCESS_THRESHOLD_USD } = await import("./helpers/constants");
+    
     [collectionPDA] = getCollectionPDA(user.publicKey, COLLECTION_ID);
+    const mint = Keypair.generate();
+    
+    // Check if collection exists, if not create it
+    try {
+      await program.account.collectionState.fetch(collectionPDA);
+    } catch {
+      // Collection doesn't exist, create it
+      await program.methods
+        .createCollection(
+          COLLECTION_ID,
+          COLLECTION_NAME,
+          CONTENT_CID,
+          ACCESS_THRESHOLD_USD,
+          MAX_VIDEO_LIMIT
+        )
+        .accounts({
+          owner: user.publicKey,
+          collection: collectionPDA,
+          oracleFeed: oracleFeed.publicKey,
+          mint: mint.publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .signers([user, mint])
+        .rpc();
+    }
   });
 
   it("Successfully uploads video", async () => {

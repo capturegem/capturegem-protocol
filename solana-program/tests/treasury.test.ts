@@ -18,7 +18,44 @@ describe("Treasury - Fee Harvesting", () => {
 
   before(async () => {
     await setupAccounts();
+    
+    // Ensure protocol and user account are initialized
+    const { ensureProtocolInitialized, ensureUserAccountInitialized } = await import("./helpers/setup");
+    await ensureProtocolInitialized();
+    await ensureUserAccountInitialized(user);
+    
+    // Create collection if it doesn't exist
+    const { SystemProgram, SYSVAR_RENT_PUBKEY } = await import("@solana/web3.js");
+    const { TOKEN_PROGRAM_ID } = await import("@solana/spl-token");
+    const { COLLECTION_NAME, CONTENT_CID, ACCESS_THRESHOLD_USD, MAX_VIDEO_LIMIT } = await import("./helpers/constants");
+    const { oracleFeed } = await import("./helpers/setup");
+    
     [collectionPDA] = getCollectionPDA(user.publicKey, COLLECTION_ID);
+    try {
+      await program.account.collectionState.fetch(collectionPDA);
+    } catch {
+      const mint = Keypair.generate();
+      await program.methods
+        .createCollection(
+          COLLECTION_ID,
+          COLLECTION_NAME,
+          CONTENT_CID,
+          ACCESS_THRESHOLD_USD,
+          MAX_VIDEO_LIMIT
+        )
+        .accounts({
+          owner: user.publicKey,
+          collection: collectionPDA,
+          oracleFeed: oracleFeed.publicKey,
+          mint: mint.publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .signers([user, mint])
+        .rpc();
+    }
+    
     [performerEscrowPDA] = getPerformerEscrowPDA(collectionPDA);
     [globalStatePDA] = getGlobalStatePDA();
   });
