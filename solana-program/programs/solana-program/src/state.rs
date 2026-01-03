@@ -15,11 +15,14 @@ pub struct GlobalState {
     pub moderator_stake_minimum: u64, // Minimum CAPGM stake required to be a moderator
     pub capgm_mint: Pubkey,        // The CAPGM ecosystem token mint
     pub fee_basis_points: u16,     // Protocol fee
+    pub updates_disabled: bool,    // If true, GlobalState can no longer be updated (one-way lock)
     pub bump: u8,
 }
 
 impl GlobalState {
-    pub const MAX_SIZE: usize = 8 + 32 + 32 + 200 + 200 + 8 + 32 + 2 + 1;
+    // 8 (discriminator) + 32 (admin) + 32 (treasury) + 200 (indexer_api_url) + 200 (node_registry_url) 
+    // + 8 (moderator_stake_minimum) + 32 (capgm_mint) + 2 (fee_basis_points) + 1 (updates_disabled) + 1 (bump)
+    pub const MAX_SIZE: usize = 8 + 32 + 32 + 200 + 200 + 8 + 32 + 2 + 1 + 1;
 }
 
 #[account]

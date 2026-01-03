@@ -4,6 +4,9 @@ use anchor_spl::associated_token::AssociatedToken;
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
+use spl_token_2022::extension::ExtensionType;
+use spl_token_2022::instruction::initialize_mint;
+use spl_token_2022::extension::transfer_fee::instruction::initialize_transfer_fee_config;
 
 #[derive(Accounts)]
 #[instruction(collection_id: String, name: String, cid_hash: [u8; 32], access_threshold_usd: u64)]
@@ -31,19 +34,28 @@ pub struct CreateCollection<'info> {
     #[account(mut)]
     pub claim_vault: UncheckedAccount<'info>,
 
-    /// Token mint account (PDA derived from collection)
+    /// CHECK: Manual creation to support Transfer Fee Extension
     #[account(
-        init_if_needed,
-        payer = owner,
-        mint::decimals = 6,
-        mint::authority = collection,
-        mint::freeze_authority = collection,
+        mut,
         seeds = [b"mint", collection.key().as_ref()],
         bump
     )]
-    pub mint: InterfaceAccount<'info, Mint>,
+    pub mint: UncheckedAccount<'info>,
 
-    pub token_program: Interface<'info, TokenInterface>,
+    /// CHECK: The DAO Treasury that will receive withheld fees
+    /// Validated against GlobalState treasury
+    pub treasury: UncheckedAccount<'info>,
+
+    /// Global state account containing the protocol treasury address
+    #[account(
+        seeds = [crate::constants::SEED_GLOBAL_STATE],
+        bump = global_state.bump
+    )]
+    pub global_state: Account<'info, GlobalState>,
+
+    /// CHECK: Token-2022 program (required for Transfer Fee Extension)
+    #[account(address = spl_token_2022::ID)]
+    pub token_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
     pub clock: Sysvar<'info, Clock>,
     pub rent: Sysvar<'info, Rent>,
@@ -58,6 +70,12 @@ pub fn create_collection(
 ) -> Result<()> {
     require!(collection_id.len() <= MAX_ID_LEN, ProtocolError::StringTooLong);
     require!(name.len() <= MAX_NAME_LEN, ProtocolError::StringTooLong);
+    
+    // Validate that the treasury matches the GlobalState treasury
+    require!(
+        ctx.accounts.treasury.key() == ctx.accounts.global_state.treasury,
+        ProtocolError::Unauthorized
+    );
 
     let clock = &ctx.accounts.clock;
     let collection = &mut ctx.accounts.collection;
@@ -86,14 +104,87 @@ pub fn create_collection(
     collection.tokens_minted = false; // Tokens not yet minted
     collection.bump = ctx.bumps.collection;
 
-    // Mint is automatically created and initialized by Anchor's init constraint
-    // The mint authority is set to the collection PDA, which allows the collection
-    // to control minting and freezing of tokens
+    // --- MANUAL MINT CREATION WITH TRANSFER FEE EXTENSION START ---
+
+    // 1. Define Transfer Fee Config (5% = 500 basis points)
+    let fee_basis_points = 500; // 5%
+    let max_fee = u64::MAX;     // Cap on fees (optional, set to MAX for no cap)
+    
+    // 2. Calculate space required for Mint + TransferFeeConfig extension
+    let space = ExtensionType::try_calculate_account_len::<spl_token_2022::state::Mint>(
+        &[ExtensionType::TransferFeeConfig],
+    ).map_err(|_| ProtocolError::MathOverflow)?;
+
+    // 3. Calculate Rent
+    let rent_lamports = ctx.accounts.rent.minimum_balance(space);
+
+    // 4. Prepare Seeds for Signing (Mint is a PDA of Collection)
+    let seeds = &[
+        b"mint",
+        ctx.accounts.collection.to_account_info().key.as_ref(),
+        &[ctx.bumps.mint],
+    ];
+    let signer = &[&seeds[..]];
+
+    // 5. Create the Account (System Program CPI)
+    anchor_lang::solana_program::program::invoke_signed(
+        &anchor_lang::solana_program::system_instruction::create_account(
+            ctx.accounts.owner.key,
+            ctx.accounts.mint.key,
+            rent_lamports,
+            space as u64,
+            ctx.accounts.token_program.key,
+        ),
+        &[
+            ctx.accounts.owner.to_account_info(),
+            ctx.accounts.mint.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
+        ],
+        signer,
+    )?;
+
+    // 6. Initialize Transfer Fee Extension
+    // CRITICAL: This must be called BEFORE initialize_mint
+    anchor_lang::solana_program::program::invoke_signed(
+        &initialize_transfer_fee_config(
+            ctx.accounts.token_program.key,
+            ctx.accounts.mint.key,
+            Some(ctx.accounts.treasury.key), // Config Authority (can update fees later)
+            Some(ctx.accounts.treasury.key), // Withdraw Authority (receives withheld fees)
+            fee_basis_points,
+            max_fee,
+        )?,
+        &[
+            ctx.accounts.mint.to_account_info(),
+            ctx.accounts.treasury.to_account_info(), 
+        ],
+        signer,
+    )?;
+
+    // 7. Initialize the Mint (Standard Token-2022)
+    anchor_lang::solana_program::program::invoke_signed(
+        &initialize_mint(
+            ctx.accounts.token_program.key,
+            ctx.accounts.mint.key,
+            &ctx.accounts.collection.key(), // Mint Authority
+            Some(&ctx.accounts.collection.key()), // Freeze Authority
+            6, // Decimals
+        )?,
+        &[
+            ctx.accounts.mint.to_account_info(),
+            ctx.accounts.collection.to_account_info(),
+            ctx.accounts.rent.to_account_info(),
+        ],
+        signer,
+    )?;
+
+    // --- MANUAL MINT CREATION WITH TRANSFER FEE EXTENSION END ---
 
     msg!(
-        "CollectionCreated: ID={} Owner={} CidHashSet=true",
+        "CollectionCreated: ID={} Owner={} CidHashSet=true Mint={} TransferFee=5%",
         collection_id,
-        owner_key
+        owner_key,
+        ctx.accounts.mint.key()
     );
 
     Ok(())

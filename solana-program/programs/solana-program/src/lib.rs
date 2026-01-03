@@ -92,6 +92,22 @@ pub mod solana_program {
         instructions::admin::initialize_protocol(ctx, indexer_url, registry_url, mod_stake_min, fee_basis_points)
     }
 
+    pub fn update_global_state(
+        ctx: Context<UpdateGlobalState>,
+        indexer_url: Option<String>,
+        registry_url: Option<String>,
+        mod_stake_min: Option<u64>,
+        fee_basis_points: Option<u16>,
+    ) -> Result<()> {
+        instructions::admin::update_global_state(ctx, indexer_url, registry_url, mod_stake_min, fee_basis_points)
+    }
+
+    pub fn disable_global_state_updates(
+        ctx: Context<DisableGlobalStateUpdates>,
+    ) -> Result<()> {
+        instructions::admin::disable_global_state_updates(ctx)
+    }
+
     pub fn stake_moderator(
         ctx: Context<StakeModerator>,
         stake_amount: u64,

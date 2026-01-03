@@ -770,6 +770,14 @@ Collection token holders can stake their tokens in a collection-specific staking
 
 This workflow enforces the "Trust-Based" system where payment is conditional on service. The purchaser has complete control over which peers receive payment, creating a meritocratic system where only peers that successfully deliver content are rewarded. Note that peers receive the 50% of the purchase price that was locked in the `AccessEscrow` PDA (the other 50% was already distributed to collection token stakers).
 
+**Pinner Payment Model:**
+
+Pinners (IPFS peers) are paid exclusively through the escrow release mechanism. There is no separate reward claiming system for pinners. Payment works as follows:
+
+- **Registration:** Pinners register as hosts for a collection via `register_collection_host`, which creates a `PinnerState` account to track their active status.
+- **Payment Source:** Pinners receive payment only when purchasers release escrow funds via the `release_escrow` instruction. The 50% of purchase price locked in escrow is distributed to peers based on actual content delivery performance.
+- **No Separate Rewards:** Pinners do not accumulate rewards in a separate pool or claim rewards independently. All payment is conditional on successful content delivery as determined by the purchaser.
+
 **Pinner Incentive to Reveal CID:**
 
 Pinners are incentivized to monitor the blockchain for new `AccessEscrow` accounts and promptly reveal the CID because:

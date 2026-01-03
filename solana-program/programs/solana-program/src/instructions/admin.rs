@@ -44,6 +44,100 @@ pub fn initialize_protocol(
     state.moderator_stake_minimum = mod_stake_min;
     state.capgm_mint = ctx.accounts.capgm_mint.key();
     state.fee_basis_points = fee_basis_points;
+    state.updates_disabled = false; // Initially, updates are enabled
     state.bump = ctx.bumps.global_state;
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct UpdateGlobalState<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    
+    #[account(
+        mut,
+        seeds = [SEED_GLOBAL_STATE],
+        bump = global_state.bump,
+        constraint = global_state.admin == admin.key() @ crate::errors::ProtocolError::Unauthorized,
+        constraint = !global_state.updates_disabled @ crate::errors::ProtocolError::Unauthorized
+    )]
+    pub global_state: Account<'info, GlobalState>,
+    
+    /// CHECK: New treasury account (pass same as current treasury if not updating)
+    pub new_treasury: UncheckedAccount<'info>,
+    
+    /// CHECK: New CAPGM mint (pass same as current capgm_mint if not updating)
+    pub new_capgm_mint: UncheckedAccount<'info>,
+}
+
+/// Update GlobalState fields. Only the admin can call this, and only if updates are not disabled.
+/// All parameters are optional - only provided fields will be updated.
+pub fn update_global_state(
+    ctx: Context<UpdateGlobalState>,
+    indexer_url: Option<String>,
+    registry_url: Option<String>,
+    mod_stake_min: Option<u64>,
+    fee_basis_points: Option<u16>,
+) -> Result<()> {
+    let state = &mut ctx.accounts.global_state;
+    
+    // Update fields only if new values are provided
+    if let Some(url) = indexer_url {
+        require!(url.len() <= crate::state::MAX_URL_LEN, crate::errors::ProtocolError::StringTooLong);
+        state.indexer_api_url = url;
+    }
+    
+    if let Some(url) = registry_url {
+        require!(url.len() <= crate::state::MAX_URL_LEN, crate::errors::ProtocolError::StringTooLong);
+        state.node_registry_url = url;
+    }
+    
+    if let Some(stake_min) = mod_stake_min {
+        state.moderator_stake_minimum = stake_min;
+    }
+    
+    if let Some(fee_bp) = fee_basis_points {
+        state.fee_basis_points = fee_bp;
+    }
+    
+    // Update treasury if a different account is provided
+    if ctx.accounts.new_treasury.key() != state.treasury {
+        state.treasury = ctx.accounts.new_treasury.key();
+    }
+    
+    // Update CAPGM mint if a different account is provided
+    if ctx.accounts.new_capgm_mint.key() != state.capgm_mint {
+        state.capgm_mint = ctx.accounts.new_capgm_mint.key();
+    }
+    
+    msg!("GlobalState updated by admin: {}", ctx.accounts.admin.key());
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct DisableGlobalStateUpdates<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    
+    #[account(
+        mut,
+        seeds = [SEED_GLOBAL_STATE],
+        bump = global_state.bump,
+        constraint = global_state.admin == admin.key() @ crate::errors::ProtocolError::Unauthorized,
+        constraint = !global_state.updates_disabled @ crate::errors::ProtocolError::Unauthorized
+    )]
+    pub global_state: Account<'info, GlobalState>,
+}
+
+/// Permanently disable all future updates to GlobalState.
+/// This is a one-way operation - once disabled, updates cannot be re-enabled.
+/// Use this to lock the protocol configuration after initial setup and testing.
+pub fn disable_global_state_updates(ctx: Context<DisableGlobalStateUpdates>) -> Result<()> {
+    let state = &mut ctx.accounts.global_state;
+    state.updates_disabled = true;
+    
+    msg!("GlobalState updates permanently disabled by admin: {}", ctx.accounts.admin.key());
+    msg!("WARNING: This action cannot be undone. GlobalState is now immutable.");
+    
     Ok(())
 }
