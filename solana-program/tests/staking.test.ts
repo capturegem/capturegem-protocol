@@ -31,6 +31,15 @@ describe("Moderator Staking", () => {
       const [moderatorStakePDA] = getModeratorStakePDA(moderator.publicKey);
       const moderatorTokenAccount = Keypair.generate().publicKey; // Mock token account
 
+      // Check if stake already exists (from previous test run)
+      let existingStake = new anchor.BN(0);
+      try {
+        const existing = await program.account.moderatorStake.fetch(moderatorStakePDA);
+        existingStake = existing.stakeAmount;
+      } catch {
+        // Account doesn't exist yet
+      }
+
       const stakeAmount = MOD_STAKE_MIN;
 
       const tx = await program.methods
@@ -48,7 +57,7 @@ describe("Moderator Staking", () => {
 
       const moderatorStake = await program.account.moderatorStake.fetch(moderatorStakePDA);
       expect(moderatorStake.moderator.toString()).to.equal(moderator.publicKey.toString());
-      expect(moderatorStake.stakeAmount.toString()).to.equal(stakeAmount.toString());
+      expect(moderatorStake.stakeAmount.toString()).to.equal(existingStake.add(stakeAmount).toString());
       expect(moderatorStake.isActive).to.be.true;
     });
 
@@ -84,7 +93,8 @@ describe("Moderator Staking", () => {
     it("Successfully adds additional stake to existing moderator", async () => {
       const [moderatorStakePDA] = getModeratorStakePDA(moderator.publicKey);
       const moderatorTokenAccount = Keypair.generate().publicKey;
-      const additionalStake = new anchor.BN(5000);
+      // Must add at least MOD_STAKE_MIN because the Rust code requires stake_amount >= minimum
+      const additionalStake = MOD_STAKE_MIN;
 
       const moderatorStakeBefore = await program.account.moderatorStake.fetch(moderatorStakePDA);
       const stakeBefore = moderatorStakeBefore.stakeAmount;
@@ -114,6 +124,26 @@ describe("Moderator Staking", () => {
 
     before(async () => {
       [moderatorStakePDA] = getModeratorStakePDA(moderator.publicKey);
+      
+      // Ensure moderator is staked before slashing
+      try {
+        await program.account.moderatorStake.fetch(moderatorStakePDA);
+      } catch {
+        // Moderator not staked, stake them first
+        const moderatorTokenAccount = Keypair.generate().publicKey;
+        await program.methods
+          .stakeModerator(MOD_STAKE_MIN)
+          .accounts({
+            moderator: moderator.publicKey,
+            globalState: globalStatePDA,
+            moderatorTokenAccount: moderatorTokenAccount,
+            moderatorStake: moderatorStakePDA,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([moderator])
+          .rpc();
+      }
     });
 
     it("Successfully slashes moderator (admin only)", async () => {

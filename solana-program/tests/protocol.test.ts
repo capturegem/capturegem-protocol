@@ -21,40 +21,10 @@ describe("Protocol Initialization", () => {
   });
 
   it("Successfully initializes protocol", async () => {
-    const [globalStatePDA] = getGlobalStatePDA();
+    const { ensureProtocolInitialized } = await import("./helpers/setup");
+    await ensureProtocolInitialized();
     
-    // Check if already initialized
-    try {
-      const existing = await program.account.globalState.fetch(globalStatePDA);
-      // If it exists and matches our admin, skip initialization
-      if (existing.admin.toString() === admin.publicKey.toString()) {
-        // Verify it's correctly initialized
-        expect(existing.treasury.toString()).to.equal(treasury.publicKey.toString());
-        expect(existing.indexerApiUrl).to.equal(INDEXER_URL);
-        expect(existing.nodeRegistryUrl).to.equal(REGISTRY_URL);
-        return; // Test passes - already initialized correctly
-      }
-    } catch {
-      // Account doesn't exist, proceed with initialization
-    }
-
-    const tx = await program.methods
-      .initializeProtocol(
-        INDEXER_URL,
-        REGISTRY_URL,
-        MOD_STAKE_MIN,
-        FEE_BASIS_POINTS
-      )
-      .accounts({
-        admin: admin.publicKey,
-        globalState: globalStatePDA,
-        treasury: treasury.publicKey,
-        capgmMint: capgmMint.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([admin])
-      .rpc();
-
+    const [globalStatePDA] = getGlobalStatePDA();
     const globalState = await program.account.globalState.fetch(globalStatePDA);
     expect(globalState.admin.toString()).to.equal(admin.publicKey.toString());
     expect(globalState.treasury.toString()).to.equal(treasury.publicKey.toString());

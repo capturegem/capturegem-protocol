@@ -51,8 +51,14 @@ export const getUserAccountPDA = (authority: PublicKey): [PublicKey, number] => 
 };
 
 export const getCollectionPDA = (owner: PublicKey, collectionId: string): [PublicKey, number] => {
+  // Ensure collectionId doesn't exceed 32 bytes for PDA seed
+  const collectionIdBuffer = Buffer.from(collectionId);
+  const truncatedId = collectionIdBuffer.length > 32 
+    ? collectionIdBuffer.slice(0, 32) 
+    : collectionIdBuffer;
+  
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("collection"), owner.toBuffer(), Buffer.from(collectionId)],
+    [Buffer.from("collection"), owner.toBuffer(), truncatedId],
     program.programId
   );
 };
@@ -86,8 +92,14 @@ export const getVideoPDA = (collection: PublicKey, videoId: string): [PublicKey,
 };
 
 export const getModTicketPDA = (targetId: string): [PublicKey, number] => {
+  // Ensure targetId doesn't exceed 32 bytes for PDA seed
+  const targetIdBuffer = Buffer.from(targetId);
+  const truncatedId = targetIdBuffer.length > 32 
+    ? targetIdBuffer.slice(0, 32) 
+    : targetIdBuffer;
+  
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("ticket"), Buffer.from(targetId)],
+    [Buffer.from("ticket"), truncatedId],
     program.programId
   );
 };

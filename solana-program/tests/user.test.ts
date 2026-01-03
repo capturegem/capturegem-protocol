@@ -8,6 +8,7 @@ import {
   setupAccounts,
   getUserAccountPDA,
   getCollectionPDA,
+  provider,
 } from "./helpers/setup";
 import {
   IPNS_KEY,
@@ -25,18 +26,10 @@ describe("User Account & Collection", () => {
 
   describe("User Account", () => {
     it("Successfully initializes user account", async () => {
+      const { ensureUserAccountInitialized } = await import("./helpers/setup");
+      await ensureUserAccountInitialized(user);
+      
       const [userAccountPDA] = getUserAccountPDA(user.publicKey);
-
-      const tx = await program.methods
-        .initializeUserAccount(IPNS_KEY)
-        .accounts({
-          authority: user.publicKey,
-          userAccount: userAccountPDA,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([user])
-        .rpc();
-
       const userAccount = await program.account.userAccount.fetch(userAccountPDA);
       expect(userAccount.authority.toString()).to.equal(user.publicKey.toString());
       expect(userAccount.ipnsKey).to.equal(IPNS_KEY);
@@ -116,6 +109,8 @@ describe("User Account & Collection", () => {
     it("Successfully creates collection", async () => {
       const [collectionPDA] = getCollectionPDA(user.publicKey, COLLECTION_ID);
       const mint = Keypair.generate();
+      await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       const tx = await program.methods
         .createCollection(
@@ -154,6 +149,8 @@ describe("User Account & Collection", () => {
     it("Fails if max_video_limit is 0", async () => {
       const [collectionPDA] = getCollectionPDA(user.publicKey, "invalid-collection");
       const mint = Keypair.generate();
+      await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       try {
         await program.methods
@@ -185,6 +182,8 @@ describe("User Account & Collection", () => {
       const longId = "a".repeat(33); // MAX_ID_LEN is 32
       const [collectionPDA] = getCollectionPDA(user.publicKey, longId);
       const mint = Keypair.generate();
+      await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       try {
         await program.methods
@@ -216,6 +215,8 @@ describe("User Account & Collection", () => {
       const longName = "a".repeat(51); // MAX_NAME_LEN is 50
       const [collectionPDA] = getCollectionPDA(user.publicKey, "test-collection-2");
       const mint = Keypair.generate();
+      await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       try {
         await program.methods
@@ -247,6 +248,8 @@ describe("User Account & Collection", () => {
       const longCid = "a".repeat(201); // MAX_URL_LEN is 200
       const [collectionPDA] = getCollectionPDA(user.publicKey, "test-collection-3");
       const mint = Keypair.generate();
+      await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       try {
         await program.methods

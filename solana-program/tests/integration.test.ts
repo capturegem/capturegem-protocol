@@ -83,6 +83,9 @@ describe("Integration Tests", () => {
       const uniqueCollectionId = `collection-${Date.now()}`;
       const [collectionPDA] = getCollectionPDA(user.publicKey, uniqueCollectionId);
       const mint = Keypair.generate();
+      await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       await program.methods
         .createCollection(
           uniqueCollectionId,
@@ -137,6 +140,9 @@ describe("Integration Tests", () => {
         await program.account.collectionState.fetch(collectionPDA);
       } catch {
         const mint = Keypair.generate();
+        await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
         await program.methods
           .createCollection(
             COLLECTION_ID,
@@ -174,6 +180,9 @@ describe("Integration Tests", () => {
 
       // 2. Submit successful audit
       const authority = Keypair.generate();
+      await provider.connection.requestAirdrop(authority.publicKey, 2 * 1e9);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       await program.methods
         .submitAuditResult(true)
         .accounts({
@@ -279,6 +288,10 @@ describe("Integration Tests", () => {
       const [collection2PDA] = getCollectionPDA(user.publicKey, uniqueId2);
       const mint1 = Keypair.generate();
       const mint2 = Keypair.generate();
+      
+      await provider.connection.requestAirdrop(mint1.publicKey, 2 * 1e9);
+      await provider.connection.requestAirdrop(mint2.publicKey, 2 * 1e9);
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       await program.methods
         .createCollection(
@@ -338,6 +351,9 @@ describe("Integration Tests", () => {
         await program.account.collectionState.fetch(collectionPDA);
       } catch {
         const mint = Keypair.generate();
+        await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
         await program.methods
           .createCollection(
             COLLECTION_ID,

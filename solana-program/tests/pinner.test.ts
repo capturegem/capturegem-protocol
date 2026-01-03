@@ -34,6 +34,10 @@ describe("Pinner Operations", () => {
     } catch {
       // Collection doesn't exist, create it
       const mint = Keypair.generate();
+      const { provider } = await import("./helpers/setup");
+      await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       await program.methods
         .createCollection(
           COLLECTION_ID,
@@ -116,6 +120,9 @@ describe("Pinner Operations", () => {
   describe("Submit Audit Result", () => {
     it("Successfully submits successful audit", async () => {
       const authority = Keypair.generate(); // In production, this would be a verified auditor
+      const { provider } = await import("./helpers/setup");
+      await provider.connection.requestAirdrop(authority.publicKey, 2 * 1e9);
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       const tx = await program.methods
         .submitAuditResult(true)
@@ -182,6 +189,10 @@ describe("Pinner Operations", () => {
     it("Fails if pinner is not active", async () => {
       // Deactivate pinner
       const authority = Keypair.generate();
+      const { provider } = await import("./helpers/setup");
+      await provider.connection.requestAirdrop(authority.publicKey, 2 * 1e9);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       await program.methods
         .submitAuditResult(false)
         .accounts({
