@@ -35,25 +35,17 @@ describe("Video Upload", () => {
     const mint = Keypair.generate();
     
     // Airdrop to mint keypair if it's used as signer
-    const { provider } = await import("./helpers/setup");
-    const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-    // Wait for confirmation with retries
-    let confirmed = false;
-    for (let i = 0; i < 10; i++) {
-      const status = await provider.connection.getSignatureStatus(sig);
-      if (status?.value?.confirmationStatus === 'confirmed' || status?.value?.confirmationStatus === 'finalized') {
-        confirmed = true;
-        break;
+    const { airdropAndConfirm, provider } = await import("./helpers/setup");
+    try {
+      await airdropAndConfirm(mint.publicKey);
+      const finalBalance = await provider.connection.getBalance(mint.publicKey);
+      if (finalBalance === 0) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        await airdropAndConfirm(mint.publicKey);
       }
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-    // Verify balance before proceeding
-    let balance = await provider.connection.getBalance(mint.publicKey);
-    let retries = 0;
-    while (balance === 0 && retries < 10) {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      balance = await provider.connection.getBalance(mint.publicKey);
-      retries++;
+    } catch (err) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      await airdropAndConfirm(mint.publicKey);
     }
     
     // Check if collection exists, if not create it

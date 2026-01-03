@@ -164,3 +164,76 @@ export async function ensureUserAccountInitialized(userKey: Keypair): Promise<vo
       .rpc();
   }
 }
+
+// Helper to airdrop and wait for confirmation
+export async function airdropAndConfirm(publicKey: PublicKey, amount: number = 2 * 1e9): Promise<void> {
+  // Check if already has sufficient balance
+  const currentBalance = await provider.connection.getBalance(publicKey);
+  if (currentBalance >= amount) {
+    return; // Already has enough
+  }
+  
+  // Request airdrop
+  const sig = await provider.connection.requestAirdrop(publicKey, amount);
+  
+  // Wait for confirmation - poll both signature status and balance
+  let balance = 0;
+  for (let i = 0; i < 50; i++) {
+    // Check balance first (faster)
+    balance = await provider.connection.getBalance(publicKey);
+    if (balance > 0) {
+      // Balance is there, verify signature status
+      try {
+        const status = await provider.connection.getSignatureStatus(sig);
+        if (status?.value?.confirmationStatus === 'confirmed' || 
+            status?.value?.confirmationStatus === 'finalized' ||
+            status === null) { // null means finalized and removed from recent
+          return; // Success
+        }
+      } catch (e) {
+        // If we have balance, that's good enough
+        if (balance > 0) {
+          return;
+        }
+      }
+    }
+    
+    // Wait before next check
+    await new Promise(resolve => setTimeout(resolve, 200));
+  }
+  
+  // Final check
+  balance = await provider.connection.getBalance(publicKey);
+  if (balance === 0) {
+    // Last resort: try one more airdrop with confirmation
+    try {
+      const sig2 = await provider.connection.requestAirdrop(publicKey, amount);
+      // Wait and confirm the transaction
+      await provider.connection.confirmTransaction(sig2, 'confirmed');
+      // Wait a bit more
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Check balance again
+      for (let i = 0; i < 20; i++) {
+        balance = await provider.connection.getBalance(publicKey);
+        if (balance > 0) {
+          return; // Success
+        }
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+    } catch (e) {
+      // Ignore errors, check balance one more time
+      balance = await provider.connection.getBalance(publicKey);
+      if (balance > 0) {
+        return;
+      }
+    }
+    
+    if (balance === 0) {
+      throw new Error(`Failed to airdrop ${amount} lamports to ${publicKey.toString()} - balance still 0 after all retries`);
+    }
+  }
+  
+  // Extra safety: wait a bit more to ensure transaction can use the funds
+  await new Promise(resolve => setTimeout(resolve, 100));
+}

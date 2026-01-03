@@ -34,25 +34,17 @@ describe("Pinner Operations", () => {
     } catch {
       // Collection doesn't exist, create it
       const mint = Keypair.generate();
-      const { provider } = await import("./helpers/setup");
-      const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      // Wait for confirmation with retries
-      let confirmed = false;
-      for (let i = 0; i < 10; i++) {
-        const status = await provider.connection.getSignatureStatus(sig);
-        if (status?.value?.confirmationStatus === 'confirmed' || status?.value?.confirmationStatus === 'finalized') {
-          confirmed = true;
-          break;
+      const { airdropAndConfirm, provider } = await import("./helpers/setup");
+      try {
+        await airdropAndConfirm(mint.publicKey);
+        const finalBalance = await provider.connection.getBalance(mint.publicKey);
+        if (finalBalance === 0) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          await airdropAndConfirm(mint.publicKey);
         }
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-      // Verify balance before proceeding
-      let balance = await provider.connection.getBalance(mint.publicKey);
-      let retries = 0;
-      while (balance === 0 && retries < 10) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        balance = await provider.connection.getBalance(mint.publicKey);
-        retries++;
+      } catch (err) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        await airdropAndConfirm(mint.publicKey);
       }
       
       await program.methods
@@ -137,26 +129,8 @@ describe("Pinner Operations", () => {
   describe("Submit Audit Result", () => {
     it("Successfully submits successful audit", async () => {
       const authority = Keypair.generate(); // In production, this would be a verified auditor
-      const { provider } = await import("./helpers/setup");
-      const sig = await provider.connection.requestAirdrop(authority.publicKey, 2 * 1e9);
-      // Wait for confirmation with retries
-      let confirmed = false;
-      for (let i = 0; i < 10; i++) {
-        const status = await provider.connection.getSignatureStatus(sig);
-        if (status?.value?.confirmationStatus === 'confirmed' || status?.value?.confirmationStatus === 'finalized') {
-          confirmed = true;
-          break;
-        }
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-      // Verify balance before proceeding
-      let balance = await provider.connection.getBalance(authority.publicKey);
-      let retries = 0;
-      while (balance === 0 && retries < 10) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        balance = await provider.connection.getBalance(authority.publicKey);
-        retries++;
-      }
+      const { airdropAndConfirm } = await import("./helpers/setup");
+      await airdropAndConfirm(authority.publicKey);
 
       const tx = await program.methods
         .submitAuditResult(true)
@@ -223,26 +197,8 @@ describe("Pinner Operations", () => {
     it("Fails if pinner is not active", async () => {
       // Deactivate pinner
       const authority = Keypair.generate();
-      const { provider } = await import("./helpers/setup");
-      const sig = await provider.connection.requestAirdrop(authority.publicKey, 2 * 1e9);
-      // Wait for confirmation with retries
-      let confirmed = false;
-      for (let i = 0; i < 10; i++) {
-        const status = await provider.connection.getSignatureStatus(sig);
-        if (status?.value?.confirmationStatus === 'confirmed' || status?.value?.confirmationStatus === 'finalized') {
-          confirmed = true;
-          break;
-        }
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-      // Verify balance before proceeding
-      let balance = await provider.connection.getBalance(authority.publicKey);
-      let retries = 0;
-      while (balance === 0 && retries < 10) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        balance = await provider.connection.getBalance(authority.publicKey);
-        retries++;
-      }
+      const { airdropAndConfirm } = await import("./helpers/setup");
+      await airdropAndConfirm(authority.publicKey);
       
       await program.methods
         .submitAuditResult(false)

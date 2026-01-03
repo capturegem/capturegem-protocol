@@ -160,9 +160,8 @@ describe("Moderation", () => {
     it("Fails if target_id exceeds MAX_ID_LEN", async () => {
       // Use a test user to avoid conflicts
       const testUser = Keypair.generate();
-      const sig = await provider.connection.requestAirdrop(testUser.publicKey, 10 * 1e9);
-      await provider.connection.confirmTransaction(sig, 'confirmed');
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const { airdropAndConfirm } = await import("./helpers/setup");
+      await airdropAndConfirm(testUser.publicKey, 10 * 1e9);
 
       // Test with a target_id that's exactly at the limit (32 chars) - should work
       // Use unique ID to avoid conflicts with previous test runs
@@ -458,9 +457,8 @@ describe("Moderation", () => {
       const uniqueTargetId = `t3${Date.now()}`.slice(0, 32);
       const [newTicketPDA] = getModTicketPDA(uniqueTargetId);
       const unstakedModerator = Keypair.generate();
-      const sig = await provider.connection.requestAirdrop(unstakedModerator.publicKey, 10 * 1e9);
-      await provider.connection.confirmTransaction(sig, 'confirmed');
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const { airdropAndConfirm } = await import("./helpers/setup");
+      await airdropAndConfirm(unstakedModerator.publicKey, 10 * 1e9);
       
       const [unstakedModeratorStakePDA] = getModeratorStakePDA(unstakedModerator.publicKey);
 
