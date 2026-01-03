@@ -145,6 +145,38 @@ export class PDAUtils {
   }
 
   /**
+   * Derive PerformerEscrow PDA
+   * 
+   * Seeds: ["performer_escrow", collection]
+   */
+  static derivePerformerEscrow(
+    collection: PublicKey,
+    programId: PublicKey
+  ): [PublicKey, number] {
+    return PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("performer_escrow"),
+        collection.toBuffer(),
+      ],
+      programId
+    );
+  }
+
+  /**
+   * Derive GlobalState PDA
+   * 
+   * Seeds: ["global_state"]
+   */
+  static deriveGlobalState(
+    programId: PublicKey
+  ): [PublicKey, number] {
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from("global_state")],
+      programId
+    );
+  }
+
+  /**
    * Derive CopyrightClaim PDA
    * 
    * Seeds: ["copyright_claim", collection, claimant]

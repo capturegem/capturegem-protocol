@@ -141,8 +141,8 @@ export const STAKING_POOL_PERCENTAGE = 0.5;
 /** Percentage of purchase amount that goes to escrow (50%) */
 export const ESCROW_PERCENTAGE = 0.5;
 
-/** Escrow expiration time (7 days in seconds) */
-export const ESCROW_EXPIRATION_SECONDS = 7 * 24 * 60 * 60;
+/** Escrow expiration time (24 hours in seconds) - matches Rust ESCROW_EXPIRY_SECONDS */
+export const ESCROW_EXPIRATION_SECONDS = 24 * 60 * 60; // 86400 seconds
 
 /** Minimum trust score for pinners (0-100) */
 export const MIN_PINNER_TRUST_SCORE = 50;

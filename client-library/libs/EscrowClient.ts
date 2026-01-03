@@ -19,6 +19,7 @@ import {
 import { Program, BN, AnchorProvider } from "@coral-xyz/anchor";
 import { TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
 import { SolanaProgram } from "../../solana-program/target/types/solana_program";
+import { SEED_PEER_TRUST } from "./constants";
 
 /**
  * Pinner payment distribution
@@ -105,7 +106,7 @@ export class EscrowClient {
     // Derive PeerTrustState PDAs for each pinner
     const peerTrustPDAs = pinnerPubkeys.map(pinner => {
       const [pda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("peer_trust"), pinner.toBuffer()],
+        [Buffer.from(SEED_PEER_TRUST), pinner.toBuffer()],
         this.program.programId
       );
       return pda;

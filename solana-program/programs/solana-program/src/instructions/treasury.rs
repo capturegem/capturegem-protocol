@@ -20,10 +20,10 @@ pub struct HarvestFees<'info> {
     #[account(mut)]
     pub mint: UncheckedAccount<'info>,
 
-    /// CHECK: Source vault containing harvested fees (must be a token account)
+    /// Source vault containing harvested fees (must be a token account)
     /// This account should have already received fees via HarvestWithheldTokensToMint + WithdrawWithheldTokensFromMint
     #[account(mut)]
-    pub fee_vault: UncheckedAccount<'info>,
+    pub fee_vault: InterfaceAccount<'info, TokenAccount>,
 
     /// CHECK: Owner's token account to receive 20% of fees
     #[account(mut)]
@@ -54,12 +54,16 @@ pub struct HarvestFees<'info> {
 }
 
 pub fn harvest_fees(ctx: Context<HarvestFees>) -> Result<()> {
-    let collection = &mut ctx.accounts.collection;
+    // Get collection info before mutable borrow
+    let collection_owner = ctx.accounts.collection.owner;
+    let collection_id = ctx.accounts.collection.collection_id.clone();
+    let collection_bump = ctx.accounts.collection.bump;
+    let collection_account_info = ctx.accounts.collection.to_account_info();
     let global_state = &ctx.accounts.global_state;
 
     // 1. Authority check: Only collection owner or protocol admin can harvest fees
     require!(
-        ctx.accounts.authority.key() == collection.owner 
+        ctx.accounts.authority.key() == collection_owner 
         || ctx.accounts.authority.key() == global_state.admin,
         ProtocolError::Unauthorized
     );
@@ -67,11 +71,10 @@ pub fn harvest_fees(ctx: Context<HarvestFees>) -> Result<()> {
     // 2. Read fee_vault balance to calculate actual harvested amount
     // The fee_vault should already contain harvested fees from Token-2022 operations
     // (HarvestWithheldTokensToMint + WithdrawWithheldTokensFromMint should be called separately)
-    let fee_vault_account = Account::<TokenAccount>::try_from(&ctx.accounts.fee_vault)
-        .map_err(|_| ProtocolError::InsufficientFunds)?;
-    
-    let harvested_amount = fee_vault_account.amount;
+    let harvested_amount = ctx.accounts.fee_vault.amount;
     require!(harvested_amount > 0, ProtocolError::InsufficientFunds);
+    
+    let collection = &mut ctx.accounts.collection;
 
     // 3. Split fees according to 50/20/20/10 distribution
     let pinner_share = harvested_amount
@@ -117,11 +120,10 @@ pub fn harvest_fees(ctx: Context<HarvestFees>) -> Result<()> {
     // 
     // Alternative: If fee_vault is owned by the authority, they would need to sign transfers,
     // but this would require the authority to be a signer for each transfer, which is less secure.
-    let collection_bump = collection.bump;
     let collection_seeds = &[
         b"collection",
-        collection.owner.as_ref(),
-        collection.collection_id.as_bytes(),
+        collection_owner.as_ref(),
+        collection_id.as_bytes(),
         &[collection_bump],
     ];
     let signer_seeds = &[&collection_seeds[..]];
@@ -131,7 +133,7 @@ pub fn harvest_fees(ctx: Context<HarvestFees>) -> Result<()> {
         let transfer_owner = Transfer {
             from: ctx.accounts.fee_vault.to_account_info(),
             to: ctx.accounts.owner_token_account.to_account_info(),
-            authority: ctx.accounts.collection.to_account_info(),
+            authority: collection_account_info.clone(),
         };
         let cpi_ctx_owner = CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
@@ -146,7 +148,7 @@ pub fn harvest_fees(ctx: Context<HarvestFees>) -> Result<()> {
         let transfer_performer = Transfer {
             from: ctx.accounts.fee_vault.to_account_info(),
             to: ctx.accounts.performer_escrow_token_account.to_account_info(),
-            authority: ctx.accounts.collection.to_account_info(),
+            authority: collection_account_info.clone(),
         };
         let cpi_ctx_performer = CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
@@ -161,7 +163,7 @@ pub fn harvest_fees(ctx: Context<HarvestFees>) -> Result<()> {
         let transfer_staker = Transfer {
             from: ctx.accounts.fee_vault.to_account_info(),
             to: ctx.accounts.staker_treasury.to_account_info(),
-            authority: ctx.accounts.collection.to_account_info(),
+            authority: collection_account_info.clone(),
         };
         let cpi_ctx_staker = CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),

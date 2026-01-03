@@ -481,15 +481,19 @@ export class StakingClient {
    */
   private calculatePendingRewards(position: any, pool: any): BN {
     // rewardPerToken is u128, amountStaked is u64, rewardDebt is u128
-    // We need to handle the precision correctly
+    // All values are scaled by REWARD_PRECISION (1e12)
+    // Formula matches program: pending = ((amountStaked * rewardPerToken) - rewardDebt) / REWARD_PRECISION
     const rewardPerToken = new BN(pool.rewardPerToken.toString());
     const amountStaked = new BN(position.amountStaked.toString());
     const rewardDebt = new BN(position.rewardDebt.toString());
+    const REWARD_PRECISION = new BN(1_000_000_000_000); // 1e12
     
     // Calculate: (amountStaked * rewardPerToken) - rewardDebt
-    // Note: rewardPerToken is scaled, so we need to divide by precision
-    const totalRewards = amountStaked.mul(rewardPerToken).div(new BN(1e12)); // REWARD_PRECISION is typically 1e12
-    return totalRewards.sub(rewardDebt);
+    // All values are already scaled, so subtract first, then divide by precision
+    const pendingScaled = amountStaked.mul(rewardPerToken).sub(rewardDebt);
+    
+    // Divide by precision to get actual token amount
+    return pendingScaled.div(REWARD_PRECISION);
   }
 
   /**

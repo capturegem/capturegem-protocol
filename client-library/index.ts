@@ -25,6 +25,7 @@ export { PinnerClient } from "./libs/PinnerClient";
 // NEW: Economic clients
 export { EscrowClient } from "./libs/EscrowClient";
 export { StakingClient } from "./libs/StakingClient";
+export { TreasuryClient } from "./libs/TreasuryClient";
 
 // NEW: Moderation client
 export { ModerationClient } from "./libs/ModerationClient";
