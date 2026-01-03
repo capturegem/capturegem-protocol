@@ -59,8 +59,8 @@ pub mod solana_program {
         instructions::access::purchase_access(ctx, total_amount, cid_hash)
     }
 
-    pub fn release_escrow(
-        ctx: Context<ReleaseEscrow>,
+    pub fn release_escrow<'info>(
+        ctx: Context<'_, '_, '_, 'info, ReleaseEscrow<'info>>,
         peer_wallets: Vec<Pubkey>,
         peer_weights: Vec<u64>,
     ) -> Result<()> {

@@ -5,6 +5,7 @@ use anchor_spl::token_interface::{TokenInterface, Transfer, Burn, burn};
 use anchor_spl::token_2022::{self, Token2022};
 use spl_token_2022::extension::{ExtensionType, StateWithExtensionsMut, BaseStateWithExtensionsMut};
 use spl_token_2022::state::Mint as MintState;
+use spl_token_2022::instruction::transfer as spl_transfer;
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
@@ -363,8 +364,8 @@ pub struct ReleaseEscrow<'info> {
 /// Releases escrow funds to peer wallets based on their contribution to content delivery.
 /// This implements the "Trust-Based Delivery" mechanism where the BUYER determines payment.
 /// Only the purchaser can call this function, and they decide which peers get paid.
-pub fn release_escrow(
-    ctx: Context<ReleaseEscrow>,
+pub fn release_escrow<'info>(
+    ctx: Context<'_, '_, '_, 'info, ReleaseEscrow<'info>>,
     peer_wallets: Vec<Pubkey>,
     peer_weights: Vec<u64>,
 ) -> Result<()> {
@@ -396,6 +397,13 @@ pub fn release_escrow(
 
     let amount_locked = access_escrow.amount_locked;
     
+    // Get all keys and data before the loop to avoid lifetime issues
+    let escrow_token_account_key = *ctx.accounts.escrow_token_account.key;
+    let token_program_key = *ctx.accounts.token_program.key;
+    let purchaser_key = access_escrow.purchaser;
+    let collection_key = access_escrow.collection;
+    let escrow_bump = access_escrow.bump;
+    
     // Get collection info before mutable borrow
     let collection_owner = ctx.accounts.collection.owner;
     let collection_id = ctx.accounts.collection.collection_id.clone();
@@ -410,7 +418,7 @@ pub fn release_escrow(
 
     // Distribute tokens to peers based on weights
     // Remaining accounts should be provided in pairs: [peer_token_account, peer_trust_state] for each peer
-    let remaining_accounts = &ctx.remaining_accounts;
+    let remaining_accounts = ctx.remaining_accounts;
     require!(
         remaining_accounts.len() >= peer_wallets.len() * 2,
         ProtocolError::InvalidFeeConfig
@@ -465,17 +473,35 @@ pub fn release_escrow(
                 msg!("PeerTrustState not initialized for peer: {}", peer_wallet);
             }
 
-            // Transfer tokens from escrow to peer token account
-            msg!(
-                "PeerTransfer: From={} To={} Amount={}",
-                ctx.accounts.escrow_token_account.key(),
-                peer_token_account_info.key(),
-                peer_amount
-            );
-            
-            // TODO: Implement actual transfer - requires restructuring to avoid lifetime issues
-            // Options: 1) Limit max peers and use regular accounts, 2) Use separate instruction per peer
-            // 3) Use invoke_signed with proper account info handling
+            // Transfer tokens from escrow to peer token account using invoke_signed
+            let escrow_seeds = [
+                SEED_ACCESS_ESCROW,
+                purchaser_key.as_ref(),
+                collection_key.as_ref(),
+                &[escrow_bump],
+            ];
+            let signer_seeds = &[&escrow_seeds[..]];
+
+            // Create the SPL token transfer instruction
+            let transfer_instruction = spl_transfer(
+                &token_program_key,
+                &escrow_token_account_key,
+                peer_token_account_info.key,
+                &escrow_token_account_key, // Escrow account is both source and authority
+                &[],
+                peer_amount,
+            )?;
+
+            // Invoke with the escrow PDA as signer
+            invoke_signed(
+                &transfer_instruction,
+                &[
+                    ctx.accounts.escrow_token_account.to_account_info(),
+                    peer_token_account_info.clone(),
+                    ctx.accounts.token_program.to_account_info(),
+                ],
+                signer_seeds,
+            )?;
 
             msg!(
                 "PeerPayment: Peer={} Amount={} Weight={} TrustScore={}",

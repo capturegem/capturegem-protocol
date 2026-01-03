@@ -286,9 +286,28 @@ pub fn claim_staking_rewards(ctx: Context<ClaimStakingRewards>) -> Result<()> {
     
     require!(pending_tokens > 0, ProtocolError::InsufficientFunds);
 
-    // Transfer rewards from pool to staker
-    // In production: Use PDA signer for pool token account
-    // For now, log the transfer
+    // Transfer rewards from pool to staker using pool PDA authority
+    let collection_key = ctx.accounts.collection.key();
+    let pool_seeds = [
+        SEED_STAKING_POOL,
+        collection_key.as_ref(),
+        &[staking_pool.bump],
+    ];
+    let signer_seeds = &[&pool_seeds[..]];
+
+    let transfer_to_staker = Transfer {
+        from: ctx.accounts.pool_token_account.to_account_info(),
+        to: ctx.accounts.staker_token_account.to_account_info(),
+        authority: ctx.accounts.pool_token_account.to_account_info(),
+    };
+    
+    let cpi_ctx = CpiContext::new_with_signer(
+        ctx.accounts.token_program.to_account_info(),
+        transfer_to_staker,
+        signer_seeds,
+    );
+    anchor_spl::token_interface::transfer(cpi_ctx, pending_tokens)?;
+
     msg!(
         "RewardClaim: Staker={} Collection={} Amount={}",
         ctx.accounts.staker.key(),
@@ -363,18 +382,41 @@ pub fn unstake_collection_tokens(
         .ok_or(ProtocolError::MathOverflow)?;
 
     let pending_tokens = (pending / REWARD_PRECISION) as u64;
-    if pending_tokens > 0 {
-        msg!("AutoClaimOnUnstake: Amount={}", pending_tokens);
-        // In production: Transfer pending rewards
-    }
+    
+    // Calculate total amount to transfer: staked tokens + pending rewards
+    let total_transfer = amount
+        .checked_add(pending_tokens)
+        .ok_or(ProtocolError::MathOverflow)?;
 
-    // Transfer staked tokens back to staker
-    // In production: Use PDA signer for pool token account
+    // Transfer staked tokens + rewards back to staker using pool PDA authority
+    let collection_key = ctx.accounts.collection.key();
+    let pool_seeds = [
+        SEED_STAKING_POOL,
+        collection_key.as_ref(),
+        &[staking_pool.bump],
+    ];
+    let signer_seeds = &[&pool_seeds[..]];
+
+    let transfer_to_staker = Transfer {
+        from: ctx.accounts.pool_token_account.to_account_info(),
+        to: ctx.accounts.staker_token_account.to_account_info(),
+        authority: ctx.accounts.pool_token_account.to_account_info(),
+    };
+    
+    let cpi_ctx = CpiContext::new_with_signer(
+        ctx.accounts.token_program.to_account_info(),
+        transfer_to_staker,
+        signer_seeds,
+    );
+    anchor_spl::token_interface::transfer(cpi_ctx, total_transfer)?;
+
     msg!(
-        "Unstake: Staker={} Collection={} Amount={}",
+        "Unstake: Staker={} Collection={} StakedAmount={} RewardAmount={} TotalTransferred={}",
         ctx.accounts.staker.key(),
         ctx.accounts.collection.collection_id,
-        amount
+        amount,
+        pending_tokens,
+        total_transfer
     );
 
     // Update staking pool
