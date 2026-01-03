@@ -146,7 +146,7 @@ describe("Moderator Staking", () => {
       }
     });
 
-    it("Successfully slashes moderator (admin only)", async () => {
+    it("Successfully slashes moderator (admin only)", async function() {
       // Verify admin matches the protocol admin
       const globalState = await program.account.globalState.fetch(globalStatePDA);
       if (globalState.admin.toString() !== admin.publicKey.toString()) {

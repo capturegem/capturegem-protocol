@@ -84,11 +84,23 @@ describe("Integration Tests", () => {
       const [collectionPDA] = getCollectionPDA(user.publicKey, uniqueCollectionId);
       const mint = Keypair.generate();
       const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await provider.connection.confirmTransaction(sig, 'confirmed');
+      // Wait for confirmation with retries
+      let confirmed = false;
+      for (let i = 0; i < 10; i++) {
+        const status = await provider.connection.getSignatureStatus(sig);
+        if (status?.value?.confirmationStatus === 'confirmed' || status?.value?.confirmationStatus === 'finalized') {
+          confirmed = true;
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
       // Verify balance before proceeding
-      const balance = await provider.connection.getBalance(mint.publicKey);
-      if (balance === 0) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+      let balance = await provider.connection.getBalance(mint.publicKey);
+      let retries = 0;
+      while (balance === 0 && retries < 10) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        balance = await provider.connection.getBalance(mint.publicKey);
+        retries++;
       }
       
       await program.methods
@@ -296,13 +308,25 @@ describe("Integration Tests", () => {
       
       const sig1 = await provider.connection.requestAirdrop(mint1.publicKey, 2 * 1e9);
       const sig2 = await provider.connection.requestAirdrop(mint2.publicKey, 2 * 1e9);
-      await provider.connection.confirmTransaction(sig1, 'confirmed');
-      await provider.connection.confirmTransaction(sig2, 'confirmed');
+      // Wait for confirmations with retries
+      for (let i = 0; i < 10; i++) {
+        const status1 = await provider.connection.getSignatureStatus(sig1);
+        const status2 = await provider.connection.getSignatureStatus(sig2);
+        if ((status1?.value?.confirmationStatus === 'confirmed' || status1?.value?.confirmationStatus === 'finalized') &&
+            (status2?.value?.confirmationStatus === 'confirmed' || status2?.value?.confirmationStatus === 'finalized')) {
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
       // Verify balances before proceeding
-      const balance1 = await provider.connection.getBalance(mint1.publicKey);
-      const balance2 = await provider.connection.getBalance(mint2.publicKey);
-      if (balance1 === 0 || balance2 === 0) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+      let balance1 = await provider.connection.getBalance(mint1.publicKey);
+      let balance2 = await provider.connection.getBalance(mint2.publicKey);
+      let retries = 0;
+      while ((balance1 === 0 || balance2 === 0) && retries < 10) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        balance1 = await provider.connection.getBalance(mint1.publicKey);
+        balance2 = await provider.connection.getBalance(mint2.publicKey);
+        retries++;
       }
 
       await program.methods

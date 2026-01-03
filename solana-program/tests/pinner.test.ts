@@ -36,11 +36,23 @@ describe("Pinner Operations", () => {
       const mint = Keypair.generate();
       const { provider } = await import("./helpers/setup");
       const sig = await provider.connection.requestAirdrop(mint.publicKey, 2 * 1e9);
-      await provider.connection.confirmTransaction(sig, 'confirmed');
+      // Wait for confirmation with retries
+      let confirmed = false;
+      for (let i = 0; i < 10; i++) {
+        const status = await provider.connection.getSignatureStatus(sig);
+        if (status?.value?.confirmationStatus === 'confirmed' || status?.value?.confirmationStatus === 'finalized') {
+          confirmed = true;
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
       // Verify balance before proceeding
-      const balance = await provider.connection.getBalance(mint.publicKey);
-      if (balance === 0) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+      let balance = await provider.connection.getBalance(mint.publicKey);
+      let retries = 0;
+      while (balance === 0 && retries < 10) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        balance = await provider.connection.getBalance(mint.publicKey);
+        retries++;
       }
       
       await program.methods
@@ -127,11 +139,23 @@ describe("Pinner Operations", () => {
       const authority = Keypair.generate(); // In production, this would be a verified auditor
       const { provider } = await import("./helpers/setup");
       const sig = await provider.connection.requestAirdrop(authority.publicKey, 2 * 1e9);
-      await provider.connection.confirmTransaction(sig, 'confirmed');
+      // Wait for confirmation with retries
+      let confirmed = false;
+      for (let i = 0; i < 10; i++) {
+        const status = await provider.connection.getSignatureStatus(sig);
+        if (status?.value?.confirmationStatus === 'confirmed' || status?.value?.confirmationStatus === 'finalized') {
+          confirmed = true;
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
       // Verify balance before proceeding
-      const balance = await provider.connection.getBalance(authority.publicKey);
-      if (balance === 0) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+      let balance = await provider.connection.getBalance(authority.publicKey);
+      let retries = 0;
+      while (balance === 0 && retries < 10) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        balance = await provider.connection.getBalance(authority.publicKey);
+        retries++;
       }
 
       const tx = await program.methods
@@ -201,11 +225,23 @@ describe("Pinner Operations", () => {
       const authority = Keypair.generate();
       const { provider } = await import("./helpers/setup");
       const sig = await provider.connection.requestAirdrop(authority.publicKey, 2 * 1e9);
-      await provider.connection.confirmTransaction(sig, 'confirmed');
+      // Wait for confirmation with retries
+      let confirmed = false;
+      for (let i = 0; i < 10; i++) {
+        const status = await provider.connection.getSignatureStatus(sig);
+        if (status?.value?.confirmationStatus === 'confirmed' || status?.value?.confirmationStatus === 'finalized') {
+          confirmed = true;
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
       // Verify balance before proceeding
-      const balance = await provider.connection.getBalance(authority.publicKey);
-      if (balance === 0) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+      let balance = await provider.connection.getBalance(authority.publicKey);
+      let retries = 0;
+      while (balance === 0 && retries < 10) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        balance = await provider.connection.getBalance(authority.publicKey);
+        retries++;
       }
       
       await program.methods
