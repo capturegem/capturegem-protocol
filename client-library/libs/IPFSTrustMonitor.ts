@@ -338,6 +338,7 @@ export class IPFSTrustMonitor {
 
     try {
       const start = Date.now();
+      // @ts-ignore - ipfs-http-client types are incomplete, but accepts string multiaddr
       await this.ipfsClient.swarm.connect(`/p2p/${peerId}`);
       const latency = Date.now() - start;
       
