@@ -27,7 +27,7 @@ export class ProtocolClient {
     accessThresholdUsd: number,
     oracleFeed: PublicKey
   ) {
-    const owner = this.walletManager.getPublicKey();
+    const owner = this.walletManager.getActivePublicKey();
     const [collectionStatePda] = PublicKey.findProgramAddressSync(
       [Buffer.from("collection"), owner.toBuffer(), Buffer.from(collectionId)],
       this.program.programId
@@ -63,7 +63,7 @@ export class ProtocolClient {
    * Note: This method may need to be updated to match actual program instructions.
    */
   async buyAccessToken(collectionId: string, ownerPubkey: PublicKey): Promise<string> {
-    const user = this.walletManager.getPublicKey();
+    const user = this.walletManager.getActivePublicKey();
     
     // Derive Collection State
     const [collectionStatePda] = PublicKey.findProgramAddressSync(

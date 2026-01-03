@@ -43,13 +43,34 @@ npm install
 import * as anchor from "@coral-xyz/anchor";
 import { OrcaClient } from "./libs/OrcaClient";
 import { WalletManager } from "./libs/WalletManager";
+import { Wallet } from "./libs/Wallet";
 
 // Setup Anchor provider
 const provider = anchor.AnchorProvider.env();
 const program = new anchor.Program(idl, programId, provider);
 
 // Initialize clients
-const walletManager = new WalletManager(provider.wallet);
+// Create WalletManager with connection
+const walletManager = new WalletManager(provider.connection);
+
+// Create and register a wallet from the provider's keypair
+const wallet = new Wallet();
+const keypair = (provider.wallet as any).payer; // Anchor wallet's keypair
+wallet.setKeypair(keypair);
+
+// Register with WalletManager
+const walletId = "main-wallet";
+const walletEntry = {
+  id: walletId,
+  name: "Main Wallet",
+  type: "internal" as const,
+  publicKey: wallet.getPublicKey(),
+  wallet: wallet,
+  isActive: true,
+};
+(walletManager as any).wallets.set(walletId, walletEntry);
+(walletManager as any).activeWalletId = walletId;
+
 const orcaClient = new OrcaClient(
   program,
   walletManager,

@@ -3,6 +3,7 @@ import * as anchor from "@coral-xyz/anchor";
 import { PublicKey, Keypair } from "@solana/web3.js";
 import { OrcaClient } from "../libs/OrcaClient";
 import { WalletManager, RiskLevel } from "../libs/WalletManager";
+import { Wallet } from "../libs/Wallet";
 
 /**
  * Complete Orca Integration Workflow Example
@@ -40,7 +41,28 @@ async function main() {
   const program = new anchor.Program(idl, programId, provider);
 
   // Initialize clients
-  const walletManager = new WalletManager(provider.wallet);
+  // Create WalletManager with connection
+  const walletManager = new WalletManager(provider.connection);
+  
+  // Create a temporary wallet from the provider's keypair
+  // In Anchor, provider.wallet.payer is the Keypair
+  const wallet = new Wallet();
+  const keypair = (provider.wallet as any).payer || Keypair.generate();
+  wallet.setKeypair(keypair);
+  
+  // Register the wallet with WalletManager
+  const walletId = "example-wallet";
+  const walletEntry = {
+    id: walletId,
+    name: "Example Wallet",
+    type: "internal" as const,
+    publicKey: wallet.getPublicKey(),
+    wallet: wallet,
+    isActive: true,
+  };
+  (walletManager as any).wallets.set(walletId, walletEntry);
+  (walletManager as any).activeWalletId = walletId;
+  
   const orcaClient = new OrcaClient(
     program,
     walletManager,

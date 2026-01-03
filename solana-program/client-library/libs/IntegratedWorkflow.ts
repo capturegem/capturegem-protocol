@@ -23,6 +23,7 @@ import { IPFSTrustMonitor } from "./IPFSTrustMonitor";
 import { IndexerClient } from "./IndexerClient";
 import { IpfsManager } from "./IpfsManager";
 import { WalletManager } from "./WalletManager";
+import { Wallet } from "./Wallet";
 import { decryptCID, verifyCIDHash } from "./CryptoUtils";
 
 /**
@@ -72,6 +73,45 @@ export class IntegratedWorkflow {
   ) {}
 
   /**
+   * Helper: Creates a WalletManager with a temporary wallet from a keypair.
+   * This is used for workflows that receive keypairs directly.
+   * 
+   * @param keypair - The keypair to use for signing
+   * @returns WalletManager instance with the keypair set up as an internal wallet
+   */
+  private async createWalletManagerFromKeypair(keypair: Keypair): Promise<WalletManager> {
+    const walletManager = new WalletManager(this.connection);
+    
+    // Create a Wallet instance and set the keypair directly
+    // This bypasses file-based storage for temporary workflows
+    const wallet = new Wallet({
+      onHighRiskConfirm: async (tx) => {
+        // For workflows, auto-confirm high-risk transactions
+        // In production, this would show a dialog
+        return true;
+      },
+    });
+    wallet.setKeypair(keypair);
+    
+    // Create a wallet entry manually to register it with WalletManager
+    const walletId = `temp-${keypair.publicKey.toBase58().slice(0, 8)}-${Date.now()}`;
+    const walletEntry = {
+      id: walletId,
+      name: `Temporary Wallet (${keypair.publicKey.toBase58().slice(0, 8)}...)`,
+      type: "internal" as const,
+      publicKey: keypair.publicKey,
+      wallet: wallet,
+      isActive: true,
+    };
+    
+    // Register the wallet entry directly (accessing private property for workflow convenience)
+    (walletManager as any).wallets.set(walletId, walletEntry);
+    (walletManager as any).activeWalletId = walletId;
+    
+    return walletManager;
+  }
+
+  /**
    * CREATOR WORKFLOW: Publish a new collection with Orca pool
    * 
    * This workflow:
@@ -97,8 +137,9 @@ export class IntegratedWorkflow {
     console.log("\n🚀 Starting Creator Publishing Workflow");
     console.log("=" .repeat(60));
 
-    const orcaClient = new OrcaClient(this.program as any, new WalletManager(this.connection.rpcEndpoint), this.connection);
-    const protocolClient = new ProtocolClient(this.program as any, new WalletManager(this.connection.rpcEndpoint));
+    const walletManager = await this.createWalletManagerFromKeypair(creatorKeypair);
+    const orcaClient = new OrcaClient(this.program as any, walletManager, this.connection);
+    const protocolClient = new ProtocolClient(this.program as any, walletManager);
     const indexerClient = new IndexerClient(this.indexerBaseUrl);
 
     // Step 1: Create Orca Whirlpool with initial liquidity
@@ -492,7 +533,11 @@ export class IntegratedWorkflow {
     recommendedAmount: number;
     slippageTolerance: number;
   }> {
-    const orcaClient = new OrcaClient(this.program as any, new WalletManager(this.connection.rpcEndpoint), this.connection);
+    // Create a temporary wallet manager for price estimation
+    // We don't need a specific keypair for read-only operations
+    const tempKeypair = Keypair.generate();
+    const walletManager = await this.createWalletManagerFromKeypair(tempKeypair);
+    const orcaClient = new OrcaClient(this.program as any, walletManager, this.connection);
     
     // This would query the actual Orca pool
     // For now, return placeholder values

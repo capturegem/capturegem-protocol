@@ -784,7 +784,7 @@ export class OrcaClient {
     decimalsA: number;
     decimalsB: number;
   }): Promise<string> {
-    const creator = this.walletManager.getPublicKey();
+    const creator = this.walletManager.getActivePublicKey();
 
     const tx = await this.buildInitializePoolTransaction({
       creator,
@@ -811,7 +811,7 @@ export class OrcaClient {
     tickSpacing: number;
     metadataUpdateAuth: PublicKey;
   }): Promise<{ signature: string; positionMint: PublicKey }> {
-    const creator = this.walletManager.getPublicKey();
+    const creator = this.walletManager.getActivePublicKey();
 
     const { transaction, positionMint } =
       await this.buildOpenPositionTransaction({
@@ -850,7 +850,7 @@ export class OrcaClient {
     tickLowerIndex: number;
     tickUpperIndex: number;
   }): Promise<string> {
-    const creator = this.walletManager.getPublicKey();
+    const creator = this.walletManager.getActivePublicKey();
 
     const tx = await this.buildDepositLiquidityTransaction({
       creator,

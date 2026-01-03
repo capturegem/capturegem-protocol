@@ -10,6 +10,13 @@
 export { OrcaClient } from "./libs/OrcaClient";
 export { ProtocolClient } from "./libs/ProtocolClient";
 export { WalletManager, RiskLevel } from "./libs/WalletManager";
+export { Wallet, RiskLevel as WalletRiskLevel } from "./libs/Wallet";
+export { 
+  PhantomWalletAdapter, 
+  generateWalletQRCode,
+  createPhantomWallet 
+} from "./libs/ExternalWalletAdapter";
+export type { ExternalWallet } from "./libs/WalletManager";
 export { IpfsManager } from "./libs/IpfsManager";
 export { IndexerClient } from "./libs/IndexerClient";
 export { AccessClient } from "./libs/AccessClient";
