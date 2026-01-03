@@ -95,10 +95,6 @@ describe("Pinner Operations", () => {
       expect(pinnerState.pinner.toString()).to.equal(pinner.publicKey.toString());
       expect(pinnerState.collection.toString()).to.equal(collectionPDA.toString());
       expect(pinnerState.isActive).to.be.true;
-      expect(pinnerState.shares.toString()).to.equal("1");
-
-      const collection = await program.account.collectionState.fetch(collectionPDA);
-      expect(collection.totalShares.toString()).to.equal("1");
     });
 
     it("Fails if pinner already registered for same collection", async () => {

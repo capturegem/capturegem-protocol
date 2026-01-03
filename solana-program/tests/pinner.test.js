@@ -104,9 +104,6 @@ describe("Pinner Operations", () => {
             (0, chai_1.expect)(pinnerState.pinner.toString()).to.equal(setup_1.pinner.publicKey.toString());
             (0, chai_1.expect)(pinnerState.collection.toString()).to.equal(collectionPDA.toString());
             (0, chai_1.expect)(pinnerState.isActive).to.be.true;
-            (0, chai_1.expect)(pinnerState.shares.toString()).to.equal("1");
-            const collection = yield setup_1.program.account.collectionState.fetch(collectionPDA);
-            (0, chai_1.expect)(collection.totalShares.toString()).to.equal("1");
         }));
         it("Fails if pinner already registered for same collection", () => __awaiter(void 0, void 0, void 0, function* () {
             try {

@@ -16,7 +16,7 @@ pub struct RegisterHost<'info> {
     #[account(
         init,
         payer = pinner,
-        space = 8 + 32 + 32 + 1 + 8 + 16, // Adjusted space: removed last_audit_pass (i64)
+        space = 8 + 32 + 32 + 1, // 8 (discriminator) + 32 (collection) + 32 (pinner) + 1 (is_active)
         seeds = [b"host_bond", pinner.key().as_ref(), collection.key().as_ref()],
         bump
     )]

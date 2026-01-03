@@ -51,12 +51,9 @@ pub struct CollectionState {
     pub oracle_feed: Pubkey,   // Price feed for this specific Collection Token
     
     // Reward Logic
-    pub reward_pool_balance: u64,  // Accumulated 50% fees for Pinners
     pub owner_reward_balance: u64, // Accumulated 20% fees for Owner
     pub performer_escrow_balance: u64, // Accumulated 20% fees for Performer
     pub staker_reward_balance: u64,   // Accumulated 10% fees for CAPGM Stakers
-    pub total_shares: u64,           // Total active pinner shares
-    pub acc_reward_per_share: u128,  // Accumulated rewards per share (Precision 1e12)
     pub tokens_minted: bool,          // Whether collection tokens have been minted (one-time operation)
     pub bump: u8,
 }
@@ -64,10 +61,10 @@ pub struct CollectionState {
 impl CollectionState {
     // 8 (discriminator) + 32 (owner) + MAX_ID_LEN (collection_id) + 32 (cid_hash) + 32 (mint) + 32 (pool_address) 
     // + 32 (claim_vault) + 8 (claim_deadline) + 8 (total_trust_score) + 1 (is_blacklisted) + MAX_NAME_LEN (name)
-    // + MAX_URL_LEN (content_cid) + 8 (access_threshold_usd) + 32 (oracle_feed) + 8 (reward_pool_balance)
-    // + 8 (owner_reward_balance) + 8 (performer_escrow_balance) + 8 (staker_reward_balance) + 8 (total_shares)
-    // + 16 (acc_reward_per_share) + 1 (tokens_minted) + 1 (bump)
-    pub const MAX_SIZE: usize = 8 + 32 + MAX_ID_LEN + 32 + 32 + 32 + 32 + 8 + 8 + 1 + MAX_NAME_LEN + MAX_URL_LEN + 8 + 32 + 8 + 8 + 8 + 8 + 8 + 16 + 1 + 1;
+    // + MAX_URL_LEN (content_cid) + 8 (access_threshold_usd) + 32 (oracle_feed)
+    // + 8 (owner_reward_balance) + 8 (performer_escrow_balance) + 8 (staker_reward_balance)
+    // + 1 (tokens_minted) + 1 (bump)
+    pub const MAX_SIZE: usize = 8 + 32 + MAX_ID_LEN + 32 + 32 + 32 + 32 + 8 + 8 + 1 + MAX_NAME_LEN + MAX_URL_LEN + 8 + 32 + 8 + 8 + 8 + 1 + 1;
 }
 
 #[account]
@@ -125,10 +122,6 @@ pub struct PinnerState {
     pub collection: Pubkey,
     pub pinner: Pubkey,
     pub is_active: bool,
-    
-    // Reward Logic
-    pub shares: u64,        // This pinner's stake/shares
-    pub reward_debt: u128,  // Reward debt for MasterChef algorithm
 }
 
 #[account]

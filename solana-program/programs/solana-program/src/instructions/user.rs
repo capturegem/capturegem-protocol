@@ -80,12 +80,9 @@ pub fn create_collection(
     collection.oracle_feed = ctx.accounts.oracle_feed.key();
     
     // Initialize reward trackers
-    collection.reward_pool_balance = 0;
     collection.owner_reward_balance = 0;
     collection.performer_escrow_balance = 0;
     collection.staker_reward_balance = 0;
-    collection.total_shares = 0;
-    collection.acc_reward_per_share = 0;
     collection.tokens_minted = false; // Tokens not yet minted
     collection.bump = ctx.bumps.collection;
 

@@ -82,10 +82,6 @@ pub mod solana_program {
         instructions::pinner::register_collection_host(ctx)
     }
 
-    pub fn harvest_fees(ctx: Context<HarvestFees>) -> Result<()> {
-        instructions::treasury::harvest_fees(ctx)
-    }
-
     pub fn initialize_protocol(
         ctx: Context<InitializeGlobal>,
         indexer_url: String,
