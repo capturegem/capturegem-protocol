@@ -615,8 +615,7 @@ Pinners query the Solana blockchain to verify NFT ownership:
    - **On-Chain:** Via Token-2022 program constraints (transfer instructions fail).
    - **At Peer Layer:** Pinners verify NFT ownership matches the connecting wallet.
 3. **Expiration**: While NFTs have no inherent expiration, pinners can enforce time-based access by checking the `purchased_at` timestamp in the NFT metadata and refusing service after a configurable period (e.g., 90 days).
-4. **Revocation**: Moderators can burn NFTs for users who violate TOS via a special `revoke_access` instruction, immediately revoking their access across all pinners. The burn is possible because the protocol retains freeze authority over the mint.
-5. **Sybil Resistance**: Each purchase requires a swap on Orca (real economic cost), making it expensive to create fake access accounts.
+4. **Sybil Resistance**: Each purchase requires a swap on Orca (real economic cost), making it expensive to create fake access accounts.
 
 **E. Why NFTs Instead of Escrow-Only Verification?**
 

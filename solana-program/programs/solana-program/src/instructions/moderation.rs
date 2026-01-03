@@ -162,9 +162,9 @@ pub fn resolve_ticket(ctx: Context<ResolveTicket>, verdict: bool) -> Result<()> 
 /// Resolves a copyright claim by transferring the claim vault tokens to the claimant.
 /// This is called when a moderator approves a CopyrightClaim ticket.
 /// 
-/// Note: In production, the vault_amount should be read from the claim_vault token account.
-/// For now, it's provided as a parameter to avoid complex deserialization.
-pub fn resolve_copyright_claim(ctx: Context<ResolveCopyrightClaim>, verdict: bool, vault_amount: u64) -> Result<()> {
+/// ⚠️ SECURITY: Automatically reads the full balance from claim_vault to prevent
+/// accidental or malicious partial transfers that would leave dust in the vault.
+pub fn resolve_copyright_claim(ctx: Context<ResolveCopyrightClaim>, verdict: bool) -> Result<()> {
     let ticket = &mut ctx.accounts.ticket;
     let collection = &mut ctx.accounts.collection;
     let clock = &ctx.accounts.clock;
@@ -191,7 +191,19 @@ pub fn resolve_copyright_claim(ctx: Context<ResolveCopyrightClaim>, verdict: boo
 
     // If approved, transfer claim vault tokens to claimant
     if verdict {
-        require!(vault_amount > 0, ProtocolError::InsufficientFunds);
+        // ⚠️ SECURITY: Read actual balance from claim_vault token account
+        // SPL Token account structure: mint (32 bytes) + owner (32 bytes) + amount (8 bytes) at offset 64
+        let token_account_data = ctx.accounts.claim_vault.try_borrow_data()?;
+        require!(
+            token_account_data.len() >= 72, // At least 64 + 8 bytes
+            ProtocolError::InvalidAccount
+        );
+        let amount_bytes = &token_account_data[64..72];
+        let vault_balance = u64::from_le_bytes(
+            amount_bytes.try_into().map_err(|_| ProtocolError::InvalidAccount)?
+        );
+        
+        require!(vault_balance > 0, ProtocolError::InsufficientFunds);
         
         // Get collection info before mutable borrow
         let collection_id = collection.collection_id.clone();
@@ -208,7 +220,7 @@ pub fn resolve_copyright_claim(ctx: Context<ResolveCopyrightClaim>, verdict: boo
         ];
         let collection_signer = &[&collection_seeds[..]];
         
-        // Transfer tokens from claim_vault to claimant_token_account
+        // Transfer all tokens from claim_vault to claimant_token_account
         let transfer_ix = TransferChecked {
             from: ctx.accounts.claim_vault.to_account_info(),
             mint: ctx.accounts.collection_mint.to_account_info(),
@@ -217,13 +229,14 @@ pub fn resolve_copyright_claim(ctx: Context<ResolveCopyrightClaim>, verdict: boo
         };
         let cpi_program = ctx.accounts.token_program.to_account_info();
         let cpi_ctx = CpiContext::new_with_signer(cpi_program, transfer_ix, collection_signer);
-        anchor_spl::token_interface::transfer_checked(cpi_ctx, vault_amount, ctx.accounts.collection_mint.decimals)?;
+        anchor_spl::token_interface::transfer_checked(cpi_ctx, vault_balance, ctx.accounts.collection_mint.decimals)?;
         
         msg!(
-            "CopyrightClaimApproved: Collection={} Claimant={} Vault={}",
+            "CopyrightClaimApproved: Collection={} Claimant={} Vault={} Amount={}",
             collection_id,
             ticket.reporter,
-            claim_vault_key
+            claim_vault_key,
+            vault_balance
         );
     } else {
         msg!(

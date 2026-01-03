@@ -714,9 +714,37 @@ pub fn release_escrow<'info>(
             let peer_token_account_info = &remaining_accounts[account_idx];
             let peer_trust_state_info = &remaining_accounts[account_idx + 1];
 
-            // Validate peer_token_account is a valid token account
-            // Note: We can't use Account<TokenAccount> here because it's in remaining_accounts
-            // The transfer_checked CPI will fail if the account is invalid, providing runtime safety
+            // ⚠️ SECURITY: Verify peer_token_account owner matches peer_wallet
+            // SPL Token account structure: mint (32 bytes) + owner (32 bytes) + amount (8 bytes)
+            let token_account_data = peer_token_account_info.try_borrow_data()?;
+            require!(
+                token_account_data.len() >= 64, // At least mint (32) + owner (32) bytes
+                ProtocolError::InvalidAccount
+            );
+            
+            // Extract owner from token account (offset 32-63)
+            let owner_bytes: [u8; 32] = token_account_data[32..64]
+                .try_into()
+                .map_err(|_| ProtocolError::InvalidAccount)?;
+            let token_account_owner = Pubkey::try_from(owner_bytes)
+                .map_err(|_| ProtocolError::InvalidAccount)?;
+            
+            require!(
+                token_account_owner == *peer_wallet,
+                ProtocolError::Unauthorized
+            );
+            
+            // ⚠️ SECURITY: Verify mint matches collection_mint to prevent sending wrong token type
+            let mint_bytes: [u8; 32] = token_account_data[0..32]
+                .try_into()
+                .map_err(|_| ProtocolError::InvalidAccount)?;
+            let token_account_mint = Pubkey::try_from(mint_bytes)
+                .map_err(|_| ProtocolError::InvalidAccount)?;
+            
+            require!(
+                token_account_mint == mint_key,
+                ProtocolError::Unauthorized
+            );
             
             // Verify and update/create PeerTrustState
             let (expected_peer_trust_pda, _peer_trust_bump) = Pubkey::find_program_address(

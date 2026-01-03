@@ -350,6 +350,14 @@ pub struct DepositLiquidityToOrca<'info> {
     )]
     pub collection_reserve_a: InterfaceAccount<'info, TokenAccount>,
 
+    /// Creator's token account for token A (Collection Tokens) - receives refund of unused tokens
+    #[account(
+        mut,
+        constraint = creator_token_a.mint == token_mint_a.key() @ ProtocolError::Unauthorized,
+        constraint = creator_token_a.owner == creator.key() @ ProtocolError::Unauthorized
+    )]
+    pub creator_token_a: InterfaceAccount<'info, TokenAccount>,
+
     pub token_mint_b: InterfaceAccount<'info, Mint>,
 
     #[account(
@@ -433,7 +441,11 @@ pub fn deposit_liquidity_to_orca(
 
     // Get balance after transfer (before Orca call)
     // This represents the total amount available for Orca to use
-    let balance_after_transfer = ctx.accounts.collection_reserve_b.amount;
+    let balance_after_transfer_b = ctx.accounts.collection_reserve_b.amount;
+    
+    // ⚠️ SECURITY: Track balance of collection_reserve_a before Orca call
+    // This is needed to calculate unused token_max_a for refund
+    let balance_before_orca_a = ctx.accounts.collection_reserve_a.amount;
 
     // STEP 2: Execute Orca CPI
     msg!("Step 2: Preparing Orca CPI...");
@@ -511,25 +523,25 @@ pub fn deposit_liquidity_to_orca(
     // STEP 3: Refund unused token B back to creator
     // Reload the account to get updated balance after Orca call
     ctx.accounts.collection_reserve_b.reload()?;
-    let balance_after_orca = ctx.accounts.collection_reserve_b.amount;
+    let balance_after_orca_b = ctx.accounts.collection_reserve_b.amount;
     
     // Calculate how much was actually used by Orca
     // This is the difference between balance after transfer and balance after Orca
-    let actual_used = balance_after_transfer
-        .checked_sub(balance_after_orca)
+    let actual_used_b = balance_after_transfer_b
+        .checked_sub(balance_after_orca_b)
         .ok_or(ProtocolError::MathOverflow)?;
     
     // Calculate refund amount: token_max_b - actual_used
     // This refunds any excess that wasn't needed due to pool price
     // Note: If there was a previous balance in collection_reserve_b, we only refund
     // the excess from the token_max_b we just transferred, not from the previous balance
-    let refund_amount = token_max_b
-        .checked_sub(actual_used)
+    let refund_amount_b = token_max_b
+        .checked_sub(actual_used_b)
         .ok_or(ProtocolError::MathOverflow)?;
     
-    if refund_amount > 0 {
+    if refund_amount_b > 0 {
         msg!("Refunding unused token B: {} (provided: {}, used: {})", 
-             refund_amount, token_max_b, actual_used);
+             refund_amount_b, token_max_b, actual_used_b);
         
         // Transfer refund from collection_reserve_b back to creator
         let refund_accounts = TransferChecked {
@@ -547,13 +559,64 @@ pub fn deposit_liquidity_to_orca(
         
         anchor_spl::token_interface::transfer_checked(
             refund_ctx,
-            refund_amount,
+            refund_amount_b,
             ctx.accounts.token_mint_b.decimals
         )?;
         
-        msg!("Refund complete: {} tokens returned to creator", refund_amount);
+        msg!("Refund complete: {} token B returned to creator", refund_amount_b);
     } else {
-        msg!("No refund needed: all {} tokens were used", token_max_b);
+        msg!("No refund needed: all {} token B were used", token_max_b);
+    }
+
+    // STEP 4: Refund unused token A (Collection Tokens) back to creator
+    // ⚠️ SECURITY: This prevents unused Collection Tokens from being locked in collection_reserve_a
+    // Reload the account to get updated balance after Orca call
+    ctx.accounts.collection_reserve_a.reload()?;
+    let balance_after_orca_a = ctx.accounts.collection_reserve_a.amount;
+    
+    // Calculate how much was actually used by Orca
+    // This is the difference between balance before Orca call and balance after Orca call
+    let actual_used_a = balance_before_orca_a
+        .checked_sub(balance_after_orca_a)
+        .ok_or(ProtocolError::MathOverflow)?;
+    
+    // Calculate refund amount: min(token_max_a - actual_used_a, balance_after_orca_a)
+    // This refunds any excess that wasn't needed due to pool price/tick math
+    // We use min() to handle cases where collection_reserve_a had fewer tokens than token_max_a
+    let unused_from_max = token_max_a
+        .checked_sub(actual_used_a)
+        .ok_or(ProtocolError::MathOverflow)?;
+    
+    // Refund is the minimum of: unused amount from token_max_a, and what's actually left in reserve
+    let refund_amount_a = unused_from_max.min(balance_after_orca_a);
+    
+    if refund_amount_a > 0 {
+        msg!("Refunding unused token A: {} (provided: {}, used: {}, remaining: {})", 
+             refund_amount_a, token_max_a, actual_used_a, balance_after_orca_a);
+        
+        // Transfer refund from collection_reserve_a back to creator
+        let refund_accounts_a = TransferChecked {
+            from: ctx.accounts.collection_reserve_a.to_account_info(),
+            mint: ctx.accounts.token_mint_a.to_account_info(),
+            to: ctx.accounts.creator_token_a.to_account_info(),
+            authority: ctx.accounts.collection.to_account_info(),
+        };
+        
+        let refund_ctx_a = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            refund_accounts_a,
+            signer_seeds,
+        );
+        
+        anchor_spl::token_interface::transfer_checked(
+            refund_ctx_a,
+            refund_amount_a,
+            ctx.accounts.token_mint_a.decimals
+        )?;
+        
+        msg!("Refund complete: {} token A returned to creator", refund_amount_a);
+    } else {
+        msg!("No refund needed: all {} token A were used (or none available)", token_max_a);
     }
 
     msg!("=== Flash Deposit Complete! ===");

@@ -161,10 +161,9 @@ pub mod solana_program {
 
     pub fn resolve_copyright_claim(
         ctx: Context<ResolveCopyrightClaim>,
-        verdict: bool,
-        vault_amount: u64
+        verdict: bool
     ) -> Result<()> {
-        instructions::moderation::resolve_copyright_claim(ctx, verdict, vault_amount)
+        instructions::moderation::resolve_copyright_claim(ctx, verdict)
     }
 
     pub fn resolve_cid_censorship(
