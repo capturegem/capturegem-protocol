@@ -8,7 +8,7 @@
 
 CaptureGem CDP is a decentralized application (DApp) designed to transform the adult video streaming landscape by allowing users to share, sell, and moderate video content directly on the Solana blockchain. Unlike legacy Web2 platforms that rely on centralized servers, opaque algorithms, and arbitrary de-platforming, CaptureGem utilizes a unique SocialFi model that aligns incentives between creators, consumers, and infrastructure providers.
 
-The protocol introduces a novel "Trust-Based Delivery" mechanism that fundamentally reimagines the relationship between payment and service. In this model, Content Collections are backed by liquid tokens traded on decentralized exchanges (Orca). When users purchase access, the transaction liquidity flows through these pools, but the resulting payment is held in escrow rather than being transferred immediately. This payment is only released to storage providers (IPFS Peers) once the purchaser's client confirms the content was successfully delivered. This ensures a meritocratic network where high-performance nodes build on-chain Trust Scores, creating a feedback loop where quality service is algorithmically rewarded with higher earning potential.
+The protocol introduces a novel "Trust-Based Delivery" mechanism that fundamentally reimagines the relationship between payment and service. In this model, Content Collections are backed by liquid tokens traded on decentralized exchanges (Orca). When users purchase access, the payment is split: 50% flows to a staking pool where collection token holders earn rewards, and 50% is held in escrow. This escrowed payment is only released to storage providers (IPFS Peers) once the purchaser's client confirms the content was successfully delivered—and critically, the buyer determines which peers deserve payment based on actual performance. If the buyer does not disburse funds within 24 hours, the escrowed tokens are automatically burned, creating deflationary pressure. This ensures a meritocratic network where high-performance nodes build on-chain Trust Scores, creating a feedback loop where quality service is algorithmically rewarded with higher earning potential.
 
 Additionally, the protocol embeds intellectual property protection at the tokenomic level. A portion of every collection's supply is reserved in a "Claim Vault" for potential copyright disputes. This ensures that true rights holders have a path to monetization even if they were not the initial uploaders, solving a critical pain point in decentralized content distribution where anonymity can often shield infringement.
 
@@ -60,35 +60,47 @@ The client is designed as a "Zero-Configuration" application acting as both a me
             │  Liquidity  │  │    Wallet    │  │     PDA      │
             │    Pool     │  └──────────────┘  └──────────────┘
             └──────┬──────┘
-                   │ 2. Buy Access (Tokens)
+                   │ 2. Buy Access (Swap CAPGM → Collection Tokens)
                    ▼
-            ┌──────────────────┐
-            │  Access Escrow   │
-            │      PDA         │
-            └──────┬───────────┘
-                   │
-                   │ 3. Download Content
-                   │
-                   ▼
-            ┌──────────────┐
-            │ IPFS Network │
-            └──────┬───────┘
-                   │ Data Stream
-                   ▼
-            ┌──────────────┐
-            │   Purchaser  │
-            └──────┬───────┘
-                   │ 4. Verify Peers
-                   ▼
-            ┌─────────────────────┐
-            │ Trust Client Logic   │
+            ┌──────────────────────┐
+            │  Purchase Split      │
+            │  (Collection Tokens) │
             └──────┬───────────────┘
-                   │ 5. Release Funds
-                   ▼
-            ┌──────────────────┐
-            │  Access Escrow   │
-            │      PDA         │
-            └───┬───────────┬──┘
+                   │
+                   ├────────── 50% ──────────┐
+                   │                         │
+                   ▼                         ▼
+       ┌─────────────────────┐      ┌──────────────────┐
+       │  Collection Token   │      │  Access Escrow   │
+       │   Staking Pool      │      │      PDA         │
+       │  (Rewards Stakers)  │      │  (24hr expiry)   │
+       └─────────────────────┘      └──────┬───────────┘
+                                            │
+                                            │ 3. Download Content
+                                            ▼
+                                     ┌──────────────┐
+                                     │ IPFS Network │
+                                     └──────┬───────┘
+                                            │ Data Stream
+                                            ▼
+                                     ┌──────────────┐
+                                     │   Purchaser  │
+                                     └──────┬───────┘
+                                            │ 4. Verify Peers & Choose Payment
+                                            │
+                      ┌─────────────────────┴─────────────────────┐
+                      │                                           │
+                      ▼ Within 24hrs                              ▼ After 24hrs
+            ┌─────────────────────┐                     ┌──────────────────┐
+            │ Trust Client Logic   │                     │ Permissionless   │
+            │ (Release to Peers)   │                     │  Burn Escrow     │
+            └──────┬───────────────┘                     └──────┬───────────┘
+                   │ 5a. Release Funds (Escrow 50%)             │ 5b. Burn Tokens
+                   ▼                                            ▼
+            ┌──────────────────┐                     ┌──────────────────┐
+            │  Access Escrow   │                     │ Reduce Supply    │
+            │      PDA         │                     │  (Deflationary)  │
+            └───┬───────────┬──┘                     └──────────────────┘
                 │           │
                 │ Payment   │ Payment
                 │           │
@@ -99,12 +111,12 @@ The client is designed as a "Zero-Configuration" application acting as both a me
             └─────┬────┘ └─────┬────┘
                   │            │
                   └──────┬─────┘
-                         │ Update Score
+                         │ Update Trust Score
                          ▼
-            ┌──────────────────┐
-            │ On-Chain Trust   │
-            │      Score       │
-            └──────────────────┘
+                  ┌──────────────────┐
+                  │ On-Chain Trust   │
+                  │      Score       │
+                  └──────────────────┘
 ```
 
 ## 3. Solana Program Design (The Smart Contract)
@@ -153,14 +165,14 @@ struct CollectionState {
 
 **B. Access Escrow**
 
-A temporary holding account created when a user purchases access but hasn't finished downloading. This is the core component of the "Trust-Based" payment model.
+A temporary holding account created when a user purchases access but hasn't finished downloading. This is the core component of the "Trust-Based" payment model. The escrow has a 24-hour expiration window, after which unclaimed funds are burned.
 
 ```rust
 struct AccessEscrow {
-    purchaser: Pubkey,           // The user buying content
+    purchaser: Pubkey,           // The user buying content (only they can release funds)
     collection: Pubkey,          // The content being bought
-    amount_locked: u64,          // Tokens bought from the pool, waiting for release
-    created_at: i64,             // Timestamp for timeout logic
+    amount_locked: u64,          // Tokens bought from the pool (50% of purchase), waiting for release
+    created_at: i64,             // Timestamp for 24-hour burn timeout logic
     bump: u8,
 }
 ```
@@ -178,6 +190,33 @@ struct PeerTrustState {
 }
 ```
 
+**D. Collection Staking Pool**
+
+Manages the staking of collection tokens and distribution of rewards to stakers when access is purchased.
+
+```rust
+struct CollectionStakingPool {
+    collection: Pubkey,           // The collection this pool is for
+    total_staked: u64,            // Total collection tokens staked in this pool
+    reward_per_token: u128,       // Accumulated rewards per token (scaled)
+    bump: u8,
+}
+```
+
+**E. Staker Position**
+
+Tracks an individual user's stake in a collection staking pool and their earned rewards.
+
+```rust
+struct StakerPosition {
+    staker: Pubkey,               // The user who staked
+    collection: Pubkey,           // The collection being staked
+    amount_staked: u64,           // Number of collection tokens staked
+    reward_debt: u128,            // Used to calculate pending rewards
+    bump: u8,
+}
+```
+
 ## 4. Workflows
 
 ### 4.1 Collection Creation & Minting
@@ -191,16 +230,35 @@ struct PeerTrustState {
 
 ### 4.2 Purchasing Access (The Escrow Flow)
 
-Unlike traditional models where payment goes directly to a creator, CaptureGem directs payment liquidity to the market (supporting the token price) and then to the infrastructure providers (Peers).
+Unlike traditional models where payment goes directly to a creator, CaptureGem directs payment liquidity to the market (supporting the token price) and then splits it between collection token holders and infrastructure providers (Peers).
+
+**Payment Distribution:** When a user purchases access to a collection, the payment is split as follows:
+- **50% → Collection Ownership Pool:** This portion flows to a staking pool where collection token holders can stake their tokens to earn rewards. This creates a direct incentive for token holders to support and promote their collections.
+- **50% → Peers Escrow:** This portion is locked in an `AccessEscrow` PDA and distributed to IPFS peers who successfully deliver the content, enforcing the Trust-Based payment model.
+
+**Purchase Flow:**
 
 - **Initiate Purchase:** The user clicks "Watch" or "Buy Access" in the client.
 - **DEX Swap:** The client executes a transaction that swaps the user's CAPGM for Collection Tokens via the Orca Pool. This buy pressure increases the value of the creator's held tokens.
-- **Lock in Escrow:** The output of this swap is not sent to the user's wallet. Instead, the instruction directs the output tokens into an `AccessEscrow` PDA owned by the program.
+- **Payment Split:** The purchased tokens are split automatically:
+  - 50% is transferred to the Collection Ownership Staking Pool where token stakers earn proportional rewards.
+  - 50% is locked in an `AccessEscrow` PDA, awaiting content delivery confirmation.
 - **Authorization:** The existence of a funded `AccessEscrow` account acts as the decryption key. The client sees this on-chain state and begins requesting encrypted chunks from the IPFS swarm.
+
+**Collection Token Staking:**
+
+Collection token holders can stake their tokens in a collection-specific staking pool to earn passive rewards. Each time someone purchases access to that collection, the 50% allocated to the Collection Ownership Pool is distributed proportionally to all stakers based on their stake. This mechanism:
+- Rewards long-term token holders and believers in the collection's success.
+- Creates a sustainable revenue stream beyond the initial 10% creator allocation.
+- Incentivizes community marketing and organic promotion of collections.
 
 ### 4.3 Trust-Based Fulfillment (The Download)
 
-This workflow enforces the "Trust-Based" system where payment is conditional on service.
+This workflow enforces the "Trust-Based" system where payment is conditional on service. The purchaser has complete control over which peers receive payment, creating a meritocratic system where only peers that successfully deliver content are rewarded. Note that peers receive the 50% of the purchase price that was locked in the `AccessEscrow` PDA (the other 50% was already distributed to collection token stakers).
+
+**The Trust-Based Payment Model:**
+
+The buyer is the ultimate arbiter of which peers deserve payment. This creates strong incentives for peers to provide high-quality, fast, and reliable service:
 
 - **Discovery:** The Purchaser's client uses the IPFS DHT (Distributed Hash Table) to find peers hosting the collection CID.
 - **Connection & Monitoring:** The Purchaser's IPFS Check Tool actively monitors the data stream via the Bitswap protocol. It logs granular accounting data:
@@ -208,15 +266,81 @@ This workflow enforces the "Trust-Based" system where payment is conditional on 
   - Peer ID Y sent 200MB (Blocks 5001-7000).
   - Peer ID Z connected but sent 0MB (Timed out).
 - **Client Decision:** Upon download completion (or sufficient streaming buffer), the client algorithmically determines that Peer X and Peer Y are valid earners based on "Useful Bytes Delivered."
-- **Settlement:**
-  - The Client constructs a `release_escrow` transaction containing the list of valid Peer Wallets [WalletX, WalletY] and their respective weights.
-  - The User signs this transaction (High-Risk Action).
+- **Buyer-Controlled Settlement:**
+  - The purchaser's client constructs a `release_escrow` transaction containing the list of valid Peer Wallets [WalletX, WalletY] and their respective weights based on actual bytes delivered.
+  - The User signs this transaction (High-Risk Action), explicitly approving which peers earned the payment.
 - **On-Chain Execution:**
-  - The Solana Program validates the signature matches the `AccessEscrow` owner.
-  - The tokens in escrow are split according to the provided weights and sent to Wallet X and Wallet Y.
-- **Trust Score Update:** The Program increments the `PeerTrustState` for both peers. This increases their global reputation, making them preferred nodes for future users via the Indexer's trusted endpoint.
+  - The Solana Program validates the signature matches the `AccessEscrow` owner (the purchaser).
+  - The tokens in escrow (50% of purchase) are split according to the provided weights and sent to Wallet X and Wallet Y.
+- **Trust Score Update:** The Program increments the `PeerTrustState` for each peer that receives payment. This increases their global reputation, making them preferred nodes for future users via the Indexer's trusted endpoint. The buyer's decision directly impacts the on-chain reputation of peers.
 
-### 4.4 Copyright Claims
+**24-Hour Burn Mechanism (Anti-Abandonment):**
+
+To prevent escrow accounts from accumulating indefinitely and to ensure economic finality, the protocol includes an automatic burn mechanism:
+
+- **Escrow Expiration:** Each `AccessEscrow` account includes a `created_at` timestamp. If the purchaser does not release funds to peers within 24 hours, the escrow enters an expired state.
+- **Permissionless Burn:** After the 24-hour window, anyone can call the `burn_expired_escrow` instruction. This is a permissionless action that can be executed by any network participant (typically automated by indexers or bots).
+- **Token Destruction:** The tokens in the expired escrow are permanently burned, reducing the total supply of the collection token. This creates a deflationary event that benefits all remaining token holders.
+- **Economic Rationale:** This mechanism serves multiple purposes:
+  - **Prevents Abandonment:** Ensures purchasers complete the payment cycle or forfeit the funds.
+  - **Network Hygiene:** Automatically cleans up stale escrow accounts, recovering rent and reducing blockchain state bloat.
+  - **Deflationary Pressure:** Burned tokens increase scarcity, supporting token price for honest participants.
+  - **Fair to Peers:** While peers don't receive payment if the buyer abandons the transaction, the tokens don't remain locked indefinitely, and the burn benefits the ecosystem overall.
+
+**Why the Buyer Controls Payment:**
+
+This trust-based model is fundamentally different from traditional escrows:
+- **Quality Enforcement:** Peers must actually deliver high-quality service to earn payment. Simply hosting the file is not enough.
+- **Byzantine Resistance:** The buyer can refuse payment to malicious or non-performing peers, preventing bad actors from earning rewards.
+- **Reputation Building:** Peers build on-chain reputations based on successful deliveries, creating a transparent history of reliability.
+- **Self-Correcting Network:** Over time, high-trust peers naturally rise to the top and receive preferential connections, while low-performing peers are filtered out.
+
+### 4.4 Collection Token Staking & Reward Distribution
+
+This workflow enables passive income for collection token holders through a staking mechanism that captures value from access purchases.
+
+**Staking Collection Tokens:**
+
+- **Initiate Stake:** A collection token holder calls the `stake_collection_tokens` instruction, specifying the collection and the amount of tokens they wish to stake.
+- **Transfer to Pool:** The tokens are transferred from the user's wallet to the Collection Staking Pool PDA.
+- **Position Creation:** A `StakerPosition` account is created (or updated) to track the user's stake and their share of future rewards.
+- **Reward Accounting:** The staker's `reward_debt` is initialized based on the current `reward_per_token` rate to ensure they only receive rewards from future purchases, not historical ones.
+
+**Earning Rewards from Access Purchases:**
+
+- **Purchase Event:** When a user purchases access to a collection, 50% of the purchased tokens flow to the Collection Staking Pool.
+- **Reward Distribution:** These tokens are distributed proportionally to all stakers in the pool based on their stake percentage. The distribution is calculated using the `reward_per_token` mechanism:
+  ```
+  reward_per_token += (tokens_from_purchase * PRECISION) / total_staked
+  ```
+- **Accumulation:** Rewards accumulate automatically without requiring any action from stakers. They can be claimed at any time.
+
+**Claiming Rewards:**
+
+- **Initiate Claim:** A staker calls the `claim_staking_rewards` instruction.
+- **Calculation:** The program calculates pending rewards:
+  ```
+  pending_rewards = (staker.amount_staked * pool.reward_per_token) - staker.reward_debt
+  ```
+- **Transfer:** The calculated reward tokens are transferred from the Staking Pool to the staker's wallet.
+- **Update State:** The staker's `reward_debt` is updated to reflect the claim, preventing double-claiming.
+
+**Unstaking:**
+
+- **Initiate Unstake:** A staker calls the `unstake_collection_tokens` instruction.
+- **Claim Pending:** Any pending rewards are automatically claimed first.
+- **Token Return:** The staked collection tokens are transferred back to the staker's wallet.
+- **Position Cleanup:** If the staker fully unstakes, their `StakerPosition` account can be closed to recover rent.
+
+**Economic Implications:**
+
+This staking mechanism creates several powerful incentives:
+- **Long-term Holding:** Token holders are incentivized to hold and stake rather than immediately sell after receiving tokens.
+- **Community Alignment:** Stakers benefit directly from the popularity of the collection, aligning their interests with promoting and supporting the content.
+- **Passive Income:** Creators who hold their initial 10% allocation can stake it to earn ongoing revenue beyond the initial token distribution.
+- **Price Support:** By locking tokens in staking pools, circulating supply is reduced, creating upward price pressure that benefits all token holders.
+
+### 4.5 Copyright Claims
 
 - **Dispute:** A third party realizes a collection violates their IP.
 - **Submission:** They submit a `PerformerClaim` ticket via the client, attaching off-chain proof (e.g., links to original verified social media).

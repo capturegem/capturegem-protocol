@@ -23,6 +23,8 @@ custom-panic = []
 [dependencies]
 anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
 anchor-spl = "0.32.1"
+orca_whirlpools_client = "0.1.0"
+orca_whirlpools_core = "0.1.0"
 
 
 [profile.release]

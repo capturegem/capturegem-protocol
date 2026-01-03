@@ -140,4 +140,29 @@ pub mod solana_program {
     ) -> Result<()> {
         instructions::moderation::resolve_cid_censorship(ctx, verdict, censored_cid)
     }
+
+    pub fn initialize_orca_pool(
+        ctx: Context<InitializeOrcaPool>,
+        tick_spacing: u16,
+        initial_sqrt_price: u128,
+    ) -> Result<()> {
+        instructions::orca::initialize_orca_pool(ctx, tick_spacing, initial_sqrt_price)
+    }
+
+    pub fn open_orca_position(
+        ctx: Context<OpenOrcaPosition>,
+        tick_lower_index: i32,
+        tick_upper_index: i32,
+    ) -> Result<()> {
+        instructions::orca::open_orca_position(ctx, tick_lower_index, tick_upper_index)
+    }
+
+    pub fn deposit_liquidity_to_orca(
+        ctx: Context<DepositLiquidityToOrca>,
+        liquidity_amount: u128,
+        token_max_a: u64,
+        token_max_b: u64,
+    ) -> Result<()> {
+        instructions::orca::deposit_liquidity_to_orca(ctx, liquidity_amount, token_max_a, token_max_b)
+    }
 }

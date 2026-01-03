@@ -263,11 +263,24 @@ pub fn mint_collection_tokens(
     anchor_spl::token_interface::mint_to(claim_vault_cpi_ctx, final_claim_vault_amount)?;
 
     // 3. Mint tokens to Orca liquidity pool (80%)
-    // Note: In production, this would involve:
-    // - Creating or finding an Orca Whirlpool/StableSwap pool
-    // - Providing both sides of the liquidity pair (Collection Token + CAPGM)
-    // - Using CPI to call Orca's program instructions
-    // For now, we mint directly to the provided Orca account
+    // IMPORTANT: This mints tokens to a holding account, NOT directly to the Orca pool.
+    // After this instruction, you must:
+    // 1. Call initialize_orca_pool() if the pool doesn't exist yet
+    // 2. Call deposit_liquidity_to_orca() to transfer these tokens to the actual Orca pool
+    //
+    // The full workflow is:
+    // Step 1: create_collection() - creates collection and mint
+    // Step 2: mint_collection_tokens() - mints tokens (80% to holding account)
+    // Step 3: initialize_orca_pool() - creates the Orca Whirlpool
+    // Step 4: deposit_liquidity_to_orca() - deposits tokens + CAPGM into pool
+    //
+    // In production, this would involve:
+    // - Calculating the proper pool address (Whirlpool PDA)
+    // - Minting 80% to a temporary token account controlled by the collection PDA
+    // - Then using deposit_liquidity_to_orca() to move tokens to Orca vaults
+    // - Receiving a position NFT representing the liquidity
+    //
+    // For now, we mint directly to the provided Orca account for testing purposes.
     // TODO: Implement full Orca DEX integration with proper pool creation and liquidity provision
     
     let orca_cpi_accounts = MintTo {
@@ -279,21 +292,6 @@ pub fn mint_collection_tokens(
     let orca_cpi_ctx = CpiContext::new_with_signer(orca_cpi_program, orca_cpi_accounts, signer);
     anchor_spl::token_interface::mint_to(orca_cpi_ctx, final_orca_amount)?;
 
-    // 3. In production, after minting to Orca pool account, you would:
-    //    - Call Orca's initialize_pool or add_liquidity instruction via CPI
-    //    - Provide CAPGM tokens as the other side of the pair
-    //    - Handle LP token receipt and storage
-    // Example structure (pseudo-code):
-    // let orca_ix = orca::instruction::AddLiquidity {
-    //     pool: orca_pool_account,
-    //     token_a: collection_token_account,
-    //     token_b: capgm_token_account,
-    //     amount_a: final_orca_amount,
-    //     amount_b: capgm_amount,
-    //     ...
-    // };
-    // invoke_signed(&orca_ix, &orca_accounts, &signer_seeds)?;
-
     msg!(
         "CollectionTokensMinted: Collection={} Creator={} CreatorAmount={} ClaimVaultAmount={} OrcaAmount={}",
         collection.collection_id,
@@ -301,6 +299,9 @@ pub fn mint_collection_tokens(
         final_creator_amount,
         final_claim_vault_amount,
         final_orca_amount
+    );
+    msg!(
+        "NEXT STEPS: 1) Call initialize_orca_pool() if pool doesn't exist. 2) Call deposit_liquidity_to_orca() to move tokens to Orca and create liquidity position."
     );
 
     Ok(())
