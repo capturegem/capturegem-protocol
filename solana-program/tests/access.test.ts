@@ -55,7 +55,7 @@ describe("Buy Access Token", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           rent: SYSVAR_RENT_PUBKEY,
-        })
+        } as any)
         .signers([user])
         .rpc();
       
@@ -79,7 +79,7 @@ describe("Buy Access Token", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
-        })
+        } as Parameters<typeof program.methods.buyAccessToken>[0]['accounts'])
         .signers([user])
         .rpc();
       expect.fail("Should have failed");
@@ -106,7 +106,7 @@ describe("Buy Access Token", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
-        })
+        } as Parameters<typeof program.methods.buyAccessToken>[0]['accounts'])
         .signers([user])
         .rpc();
       expect.fail("Should have failed");
@@ -134,7 +134,7 @@ describe("Buy Access Token", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
-        })
+        } as any)
         .signers([user])
         .rpc();
       expect.fail("Should have failed");

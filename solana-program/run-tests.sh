@@ -188,9 +188,9 @@ deploy_program() {
         fi
     fi
     
-    # Deploy with increased retries and timeout for large programs
+    # Deploy the program (may take a while for large programs)
     echo -e "${YELLOW}Deploying program (this may take a while for large programs)...${NC}"
-    if ! anchor deploy -- --max-retries 10; then
+    if ! anchor deploy; then
         echo -e "${RED}Error: Failed to deploy program${NC}"
         echo -e "${YELLOW}Tip: Large programs may need multiple attempts. Try running the script again.${NC}"
         exit 1
