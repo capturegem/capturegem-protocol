@@ -1,11 +1,11 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_lang::solana_program::system_instruction;
-use anchor_spl::token_interface::{TokenInterface, Transfer, Burn, burn};
+use anchor_spl::token_interface::{TokenInterface, TransferChecked, Burn, burn, Mint};
 use anchor_spl::token_2022::{self, Token2022};
 use spl_token_2022::extension::{ExtensionType, StateWithExtensionsMut, BaseStateWithExtensionsMut};
 use spl_token_2022::state::Mint as MintState;
-use spl_token_2022::instruction::transfer as spl_transfer;
+use spl_token_2022::instruction::transfer_checked as spl_transfer_checked;
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
@@ -67,6 +67,9 @@ pub struct PurchaseAccess<'info> {
     /// CHECK: Purchaser's NFT token account (will be created to hold the access NFT)
     #[account(mut)]
     pub purchaser_nft_account: UncheckedAccount<'info>,
+
+    /// Collection token mint (for transfer_checked)
+    pub collection_mint: InterfaceAccount<'info, Mint>,
 
     pub token_program: Interface<'info, TokenInterface>,
     /// Token-2022 program for NFT with extensions
@@ -185,13 +188,14 @@ pub fn purchase_access(
     // STEP 3: Transfer 50% to staking pool
     // ============================================================================
     
-    let transfer_to_pool = Transfer {
+    let transfer_to_pool = TransferChecked {
         from: ctx.accounts.purchaser_token_account.to_account_info(),
+        mint: ctx.accounts.collection_mint.to_account_info(),
         to: ctx.accounts.pool_token_account.to_account_info(),
         authority: ctx.accounts.purchaser.to_account_info(),
     };
     let cpi_ctx_pool = CpiContext::new(ctx.accounts.token_program.to_account_info(), transfer_to_pool);
-    anchor_spl::token_interface::transfer(cpi_ctx_pool, amount_to_stakers)?;
+    anchor_spl::token_interface::transfer_checked(cpi_ctx_pool, amount_to_stakers, ctx.accounts.collection_mint.decimals)?;
 
     // Distribute rewards to stakers
     if staking_pool.total_staked > 0 {
@@ -210,13 +214,14 @@ pub fn purchase_access(
     // STEP 4: Transfer 50% to escrow
     // ============================================================================
     
-    let transfer_to_escrow = Transfer {
+    let transfer_to_escrow = TransferChecked {
         from: ctx.accounts.purchaser_token_account.to_account_info(),
+        mint: ctx.accounts.collection_mint.to_account_info(),
         to: ctx.accounts.escrow_token_account.to_account_info(),
         authority: ctx.accounts.purchaser.to_account_info(),
     };
     let cpi_ctx_escrow = CpiContext::new(ctx.accounts.token_program.to_account_info(), transfer_to_escrow);
-    anchor_spl::token_interface::transfer(cpi_ctx_escrow, amount_to_escrow)?;
+    anchor_spl::token_interface::transfer_checked(cpi_ctx_escrow, amount_to_escrow, ctx.accounts.collection_mint.decimals)?;
 
     msg!(
         "AccessPurchased: Purchaser={} Collection={} NFT={} Total={} ToStakers={} ToEscrow={} ExpiresAt={}",
@@ -266,6 +271,9 @@ pub struct CreateAccessEscrow<'info> {
     )]
     pub access_escrow: Account<'info, AccessEscrow>,
 
+    /// Collection token mint (for transfer_checked)
+    pub collection_mint: InterfaceAccount<'info, Mint>,
+
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
     pub clock: Sysvar<'info, Clock>,
@@ -302,14 +310,15 @@ pub fn create_access_escrow(
     access_escrow.bump = ctx.bumps.access_escrow;
 
     // Transfer tokens from purchaser to escrow token account
-    let transfer_ix = Transfer {
+    let transfer_ix = TransferChecked {
         from: ctx.accounts.purchaser_token_account.to_account_info(),
+        mint: ctx.accounts.collection_mint.to_account_info(),
         to: ctx.accounts.escrow_token_account.to_account_info(),
         authority: ctx.accounts.purchaser.to_account_info(),
     };
     let cpi_program = ctx.accounts.token_program.to_account_info();
     let cpi_ctx = CpiContext::new(cpi_program, transfer_ix);
-    anchor_spl::token_interface::transfer(cpi_ctx, amount_locked)?;
+    anchor_spl::token_interface::transfer_checked(cpi_ctx, amount_locked, ctx.accounts.collection_mint.decimals)?;
 
     msg!(
         "AccessEscrowCreated: Purchaser={} Collection={} Amount={}",
@@ -350,6 +359,9 @@ pub struct ReleaseEscrow<'info> {
     /// CHECK: Escrow token account (source of funds) - must be owned by escrow PDA
     #[account(mut)]
     pub escrow_token_account: UncheckedAccount<'info>,
+
+    /// Collection token mint (for transfer_checked)
+    pub collection_mint: InterfaceAccount<'info, Mint>,
 
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
@@ -400,6 +412,9 @@ pub fn release_escrow<'info>(
     // Get all keys and data before the loop to avoid lifetime issues
     let escrow_token_account_key = *ctx.accounts.escrow_token_account.key;
     let token_program_key = *ctx.accounts.token_program.key;
+    let mint_account_info = ctx.accounts.collection_mint.to_account_info();
+    let mint_key = *mint_account_info.key;
+    let mint_decimals = ctx.accounts.collection_mint.decimals;
     let purchaser_key = access_escrow.purchaser;
     let collection_key = access_escrow.collection;
     let escrow_bump = access_escrow.bump;
@@ -482,14 +497,16 @@ pub fn release_escrow<'info>(
             ];
             let signer_seeds = &[&escrow_seeds[..]];
 
-            // Create the SPL token transfer instruction
-            let transfer_instruction = spl_transfer(
+            // Create the SPL token transfer_checked instruction
+            let transfer_instruction = spl_transfer_checked(
                 &token_program_key,
                 &escrow_token_account_key,
+                &mint_key,
                 peer_token_account_info.key,
                 &escrow_token_account_key, // Escrow account is both source and authority
                 &[],
                 peer_amount,
+                mint_decimals,
             )?;
 
             // Invoke with the escrow PDA as signer
@@ -497,6 +514,7 @@ pub fn release_escrow<'info>(
                 &transfer_instruction,
                 &[
                     ctx.accounts.escrow_token_account.to_account_info(),
+                    ctx.accounts.collection_mint.to_account_info(),
                     peer_token_account_info.clone(),
                     ctx.accounts.token_program.to_account_info(),
                 ],

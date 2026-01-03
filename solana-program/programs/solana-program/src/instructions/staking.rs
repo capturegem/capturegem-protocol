@@ -1,6 +1,6 @@
 // solana-program/programs/solana-program/src/instructions/staking.rs
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{TokenInterface, Transfer};
+use anchor_spl::token_interface::{TokenInterface, TransferChecked, Mint};
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
@@ -144,6 +144,9 @@ pub struct StakeCollectionTokens<'info> {
     #[account(mut)]
     pub pool_token_account: UncheckedAccount<'info>,
 
+    /// Collection token mint (for transfer_checked)
+    pub collection_mint: InterfaceAccount<'info, Mint>,
+
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
@@ -195,13 +198,14 @@ pub fn stake_collection_tokens(
     }
 
     // Transfer tokens from staker to pool
-    let transfer_ix = Transfer {
+    let transfer_ix = TransferChecked {
         from: ctx.accounts.staker_token_account.to_account_info(),
+        mint: ctx.accounts.collection_mint.to_account_info(),
         to: ctx.accounts.pool_token_account.to_account_info(),
         authority: ctx.accounts.staker.to_account_info(),
     };
     let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), transfer_ix);
-    anchor_spl::token_interface::transfer(cpi_ctx, amount)?;
+    anchor_spl::token_interface::transfer_checked(cpi_ctx, amount, ctx.accounts.collection_mint.decimals)?;
 
     // Update staking pool
     staking_pool.total_staked = staking_pool.total_staked
@@ -262,6 +266,9 @@ pub struct ClaimStakingRewards<'info> {
     #[account(mut)]
     pub pool_token_account: UncheckedAccount<'info>,
 
+    /// Collection token mint (for transfer_checked)
+    pub collection_mint: InterfaceAccount<'info, Mint>,
+
     pub token_program: Interface<'info, TokenInterface>,
 }
 
@@ -295,8 +302,9 @@ pub fn claim_staking_rewards(ctx: Context<ClaimStakingRewards>) -> Result<()> {
     ];
     let signer_seeds = &[&pool_seeds[..]];
 
-    let transfer_to_staker = Transfer {
+    let transfer_to_staker = TransferChecked {
         from: ctx.accounts.pool_token_account.to_account_info(),
+        mint: ctx.accounts.collection_mint.to_account_info(),
         to: ctx.accounts.staker_token_account.to_account_info(),
         authority: ctx.accounts.pool_token_account.to_account_info(),
     };
@@ -306,7 +314,7 @@ pub fn claim_staking_rewards(ctx: Context<ClaimStakingRewards>) -> Result<()> {
         transfer_to_staker,
         signer_seeds,
     );
-    anchor_spl::token_interface::transfer(cpi_ctx, pending_tokens)?;
+    anchor_spl::token_interface::transfer_checked(cpi_ctx, pending_tokens, ctx.accounts.collection_mint.decimals)?;
 
     msg!(
         "RewardClaim: Staker={} Collection={} Amount={}",
@@ -357,6 +365,9 @@ pub struct UnstakeCollectionTokens<'info> {
     #[account(mut)]
     pub pool_token_account: UncheckedAccount<'info>,
 
+    /// Collection token mint (for transfer_checked)
+    pub collection_mint: InterfaceAccount<'info, Mint>,
+
     pub token_program: Interface<'info, TokenInterface>,
 }
 
@@ -397,8 +408,9 @@ pub fn unstake_collection_tokens(
     ];
     let signer_seeds = &[&pool_seeds[..]];
 
-    let transfer_to_staker = Transfer {
+    let transfer_to_staker = TransferChecked {
         from: ctx.accounts.pool_token_account.to_account_info(),
+        mint: ctx.accounts.collection_mint.to_account_info(),
         to: ctx.accounts.staker_token_account.to_account_info(),
         authority: ctx.accounts.pool_token_account.to_account_info(),
     };
@@ -408,7 +420,7 @@ pub fn unstake_collection_tokens(
         transfer_to_staker,
         signer_seeds,
     );
-    anchor_spl::token_interface::transfer(cpi_ctx, total_transfer)?;
+    anchor_spl::token_interface::transfer_checked(cpi_ctx, total_transfer, ctx.accounts.collection_mint.decimals)?;
 
     msg!(
         "Unstake: Staker={} Collection={} StakedAmount={} RewardAmount={} TotalTransferred={}",

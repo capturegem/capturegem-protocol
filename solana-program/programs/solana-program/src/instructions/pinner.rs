@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{TokenInterface, TokenAccount, Transfer};
+use anchor_spl::token_interface::{TokenInterface, TokenAccount, TransferChecked, Mint};
 use crate::state::*;
 use crate::errors::ProtocolError;
 
@@ -63,6 +63,9 @@ pub struct ClaimRewards<'info> {
         constraint = pinner_token_account.mint == collection.mint @ ProtocolError::InvalidAccount
     )]
     pub pinner_token_account: InterfaceAccount<'info, TokenAccount>,
+
+    /// Collection token mint (for transfer_checked)
+    pub collection_mint: InterfaceAccount<'info, Mint>,
 
     pub token_program: Interface<'info, TokenInterface>,
 }
@@ -147,8 +150,9 @@ pub fn claim_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
     ];
     let signer_seeds = &[&collection_seeds[..]];
 
-    let transfer_ix = Transfer {
+    let transfer_ix = TransferChecked {
         from: ctx.accounts.fee_vault.to_account_info(),
+        mint: ctx.accounts.collection_mint.to_account_info(),
         to: ctx.accounts.pinner_token_account.to_account_info(),
         authority: ctx.accounts.collection.to_account_info(),
     };
@@ -159,7 +163,7 @@ pub fn claim_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
         signer_seeds,
     );
     
-    anchor_spl::token_interface::transfer(cpi_ctx, pending_tokens)?;
+    anchor_spl::token_interface::transfer_checked(cpi_ctx, pending_tokens, ctx.accounts.collection_mint.decimals)?;
 
     msg!(
         "PinnerRewardsClaimed: Pinner={} Collection={} Amount={}",

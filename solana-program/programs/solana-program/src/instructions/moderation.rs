@@ -1,6 +1,6 @@
 // solana-program/programs/solana-program/src/instructions/moderation.rs
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{TokenInterface, Transfer};
+use anchor_spl::token_interface::{TokenInterface, TransferChecked, Mint};
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
@@ -101,6 +101,9 @@ pub struct ResolveCopyrightClaim<'info> {
     /// CHECK: Claimant's token account (destination for claim vault tokens)
     #[account(mut)]
     pub claimant_token_account: UncheckedAccount<'info>,
+
+    /// Collection token mint (for transfer_checked)
+    pub collection_mint: InterfaceAccount<'info, Mint>,
 
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
@@ -206,14 +209,15 @@ pub fn resolve_copyright_claim(ctx: Context<ResolveCopyrightClaim>, verdict: boo
         let collection_signer = &[&collection_seeds[..]];
         
         // Transfer tokens from claim_vault to claimant_token_account
-        let transfer_ix = Transfer {
+        let transfer_ix = TransferChecked {
             from: ctx.accounts.claim_vault.to_account_info(),
+            mint: ctx.accounts.collection_mint.to_account_info(),
             to: ctx.accounts.claimant_token_account.to_account_info(),
             authority: ctx.accounts.collection.to_account_info(),
         };
         let cpi_program = ctx.accounts.token_program.to_account_info();
         let cpi_ctx = CpiContext::new_with_signer(cpi_program, transfer_ix, collection_signer);
-        anchor_spl::token_interface::transfer(cpi_ctx, vault_amount)?;
+        anchor_spl::token_interface::transfer_checked(cpi_ctx, vault_amount, ctx.accounts.collection_mint.decimals)?;
         
         msg!(
             "CopyrightClaimApproved: Collection={} Claimant={} Vault={}",

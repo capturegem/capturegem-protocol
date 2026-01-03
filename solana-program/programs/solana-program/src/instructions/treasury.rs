@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{TokenInterface, TokenAccount, Transfer};
+use anchor_spl::token_interface::{TokenInterface, TokenAccount, TransferChecked, Mint};
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
@@ -49,6 +49,9 @@ pub struct HarvestFees<'info> {
     /// CHECK: Treasury account for staker rewards (10%)
     #[account(mut)]
     pub staker_treasury: UncheckedAccount<'info>,
+
+    /// Collection token mint (for transfer_checked)
+    pub collection_mint: InterfaceAccount<'info, Mint>,
 
     pub token_program: Interface<'info, TokenInterface>,
 }
@@ -130,8 +133,9 @@ pub fn harvest_fees(ctx: Context<HarvestFees>) -> Result<()> {
 
     // 4a. Transfer 20% to owner's token account
     if owner_share > 0 {
-        let transfer_owner = Transfer {
+        let transfer_owner = TransferChecked {
             from: ctx.accounts.fee_vault.to_account_info(),
+            mint: ctx.accounts.collection_mint.to_account_info(),
             to: ctx.accounts.owner_token_account.to_account_info(),
             authority: collection_account_info.clone(),
         };
@@ -140,13 +144,14 @@ pub fn harvest_fees(ctx: Context<HarvestFees>) -> Result<()> {
             transfer_owner,
             signer_seeds,
         );
-        anchor_spl::token_interface::transfer(cpi_ctx_owner, owner_share)?;
+        anchor_spl::token_interface::transfer_checked(cpi_ctx_owner, owner_share, ctx.accounts.collection_mint.decimals)?;
     }
 
     // 4b. Transfer 20% to performer escrow token account
     if performer_share > 0 {
-        let transfer_performer = Transfer {
+        let transfer_performer = TransferChecked {
             from: ctx.accounts.fee_vault.to_account_info(),
+            mint: ctx.accounts.collection_mint.to_account_info(),
             to: ctx.accounts.performer_escrow_token_account.to_account_info(),
             authority: collection_account_info.clone(),
         };
@@ -155,13 +160,14 @@ pub fn harvest_fees(ctx: Context<HarvestFees>) -> Result<()> {
             transfer_performer,
             signer_seeds,
         );
-        anchor_spl::token_interface::transfer(cpi_ctx_performer, performer_share)?;
+        anchor_spl::token_interface::transfer_checked(cpi_ctx_performer, performer_share, ctx.accounts.collection_mint.decimals)?;
     }
 
     // 4c. Transfer 10% to staker treasury
     if staker_share > 0 {
-        let transfer_staker = Transfer {
+        let transfer_staker = TransferChecked {
             from: ctx.accounts.fee_vault.to_account_info(),
+            mint: ctx.accounts.collection_mint.to_account_info(),
             to: ctx.accounts.staker_treasury.to_account_info(),
             authority: collection_account_info.clone(),
         };
@@ -170,7 +176,7 @@ pub fn harvest_fees(ctx: Context<HarvestFees>) -> Result<()> {
             transfer_staker,
             signer_seeds,
         );
-        anchor_spl::token_interface::transfer(cpi_ctx_staker, staker_share)?;
+        anchor_spl::token_interface::transfer_checked(cpi_ctx_staker, staker_share, ctx.accounts.collection_mint.decimals)?;
     }
 
     // 4d. The remaining 50% stays in fee_vault for pinner rewards (or can be transferred to a pinner reward pool)
