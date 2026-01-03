@@ -232,19 +232,25 @@ pub fn mint_collection_tokens(
 ) -> Result<()> {
     require!(amount > 0, ProtocolError::InvalidFeeConfig);
 
-    let collection = &mut ctx.accounts.collection;
+    // Get values before mutable borrow
+    let collection_account_info = ctx.accounts.collection.to_account_info();
+    let collection_owner = ctx.accounts.collection.owner;
+    let collection_id = ctx.accounts.collection.collection_id.clone();
+    let collection_bump = ctx.accounts.collection.bump;
+    let collection_mint = ctx.accounts.collection.mint;
+    let tokens_minted = ctx.accounts.collection.tokens_minted;
     let mint = &ctx.accounts.mint;
 
     // ⚠️ SECURITY: Enforce one-time minting per collection
     // According to the design doc, collection tokens should only be minted once ever per collection
     require!(
-        !collection.tokens_minted,
+        !tokens_minted,
         ProtocolError::Unauthorized // Tokens already minted for this collection
     );
 
     // Verify the mint matches the collection's mint
     require!(
-        mint.key() == collection.mint,
+        mint.key() == collection_mint,
         ProtocolError::Unauthorized
     );
 
@@ -280,11 +286,10 @@ pub fn mint_collection_tokens(
         .unwrap_or(reserve_amount);
 
     // Prepare PDA signer seeds (Collection PDA is the mint authority)
-    let collection_bump = collection.bump;
     let seeds = &[
         b"collection",
-        collection.owner.as_ref(),
-        collection.collection_id.as_bytes(),
+        collection_owner.as_ref(),
+        collection_id.as_bytes(),
         &[collection_bump],
     ];
     let signer = &[&seeds[..]];
@@ -293,7 +298,7 @@ pub fn mint_collection_tokens(
     let creator_cpi_accounts = MintTo {
         mint: ctx.accounts.mint.to_account_info(),
         to: ctx.accounts.creator_token_account.to_account_info(),
-        authority: ctx.accounts.collection.to_account_info(),
+        authority: collection_account_info.clone(),
     };
     let creator_cpi_ctx = CpiContext::new_with_signer(
         ctx.accounts.token_program.to_account_info(),
@@ -306,7 +311,7 @@ pub fn mint_collection_tokens(
     let vault_cpi_accounts = MintTo {
         mint: ctx.accounts.mint.to_account_info(),
         to: ctx.accounts.claim_vault.to_account_info(),
-        authority: ctx.accounts.collection.to_account_info(),
+        authority: collection_account_info.clone(),
     };
     let vault_cpi_ctx = CpiContext::new_with_signer(
         ctx.accounts.token_program.to_account_info(),
@@ -320,7 +325,7 @@ pub fn mint_collection_tokens(
     let reserve_cpi_accounts = MintTo {
         mint: ctx.accounts.mint.to_account_info(),
         to: ctx.accounts.liquidity_reserve.to_account_info(),
-        authority: ctx.accounts.collection.to_account_info(),
+        authority: collection_account_info.clone(),
     };
     let reserve_cpi_ctx = CpiContext::new_with_signer(
         ctx.accounts.token_program.to_account_info(),
@@ -330,11 +335,12 @@ pub fn mint_collection_tokens(
     anchor_spl::token_interface::mint_to(reserve_cpi_ctx, final_reserve_amount)?;
 
     // Mark tokens as minted (one-time operation - cannot mint again)
+    let collection = &mut ctx.accounts.collection;
     collection.tokens_minted = true;
 
     msg!(
         "CollectionTokensMinted: Collection={} Mint={} TotalAmount={}",
-        collection.collection_id,
+        collection_id,
         mint.key(),
         amount
     );

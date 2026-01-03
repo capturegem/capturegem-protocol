@@ -39,10 +39,6 @@ pub mod solana_program {
         instructions::pinner::register_collection_host(ctx)
     }
 
-    pub fn claim_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
-        instructions::pinner::claim_rewards(ctx)
-    }
-
     pub fn harvest_fees(ctx: Context<HarvestFees>) -> Result<()> {
         instructions::treasury::harvest_fees(ctx)
     }

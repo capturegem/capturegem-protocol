@@ -8,7 +8,7 @@ pub mod state;
 use instructions::*;
 use state::TicketType;
 
-declare_id!("Hwwr37aHr1EddJZmFEXcEnJr94XKrjRotN6mua2tsfaZ");
+declare_id!("jk9Hqt4dLcLcQzeDvVQ1actvY5EZu6cvT3SUc7JLM4m");
 
 #[program]
 pub mod solana_program {
@@ -80,10 +80,6 @@ pub mod solana_program {
 
     pub fn register_collection_host(ctx: Context<RegisterHost>) -> Result<()> {
         instructions::pinner::register_collection_host(ctx)
-    }
-
-    pub fn claim_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
-        instructions::pinner::claim_rewards(ctx)
     }
 
     pub fn harvest_fees(ctx: Context<HarvestFees>) -> Result<()> {

@@ -179,31 +179,16 @@ pub fn harvest_fees(ctx: Context<HarvestFees>) -> Result<()> {
         anchor_spl::token_interface::transfer_checked(cpi_ctx_staker, staker_share, ctx.accounts.collection_mint.decimals)?;
     }
 
-    // 4d. The remaining 50% stays in fee_vault for pinner rewards (or can be transferred to a pinner reward pool)
-    // For now, we track it in reward_pool_balance. The actual tokens remain in fee_vault
-    // and will be distributed when pinners claim rewards.
+    // 4d. The remaining 50% stays in fee_vault.
+    // Note: Pinners are no longer paid via this mechanism. Pinners receive payment
+    // directly when purchasers release escrow funds via the release_escrow instruction.
+    // The 50% remaining in fee_vault can be used for other protocol purposes or burned.
 
     // 5. Only AFTER successful transfers, update CollectionState reward balances
     // This ensures balances match actual token transfers, preventing infinite reward exploit
     
-    // 50% to Pinners (distributed via MasterChef algorithm)
-    if collection.total_shares > 0 && final_pinner_share > 0 {
-        let precision = REWARD_PRECISION;
-        let reward_added = (final_pinner_share as u128)
-            .checked_mul(precision)
-            .ok_or(ProtocolError::MathOverflow)?
-            .checked_div(collection.total_shares as u128)
-            .ok_or(ProtocolError::MathOverflow)?;
-
-        collection.acc_reward_per_share = collection.acc_reward_per_share
-            .checked_add(reward_added)
-            .ok_or(ProtocolError::MathOverflow)?;
-    }
-    
-    // Update reward pool balance (tokens remain in fee_vault for pinner claims)
-    collection.reward_pool_balance = collection.reward_pool_balance
-        .checked_add(final_pinner_share)
-        .ok_or(ProtocolError::MathOverflow)?;
+    // Note: Pinner reward tracking (total_shares, acc_reward_per_share, reward_pool_balance)
+    // is no longer used since pinners are paid via escrow release mechanism.
 
     // 20% to Owner (already transferred, just track for accounting)
     collection.owner_reward_balance = collection.owner_reward_balance

@@ -7,7 +7,9 @@ use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
 
-/// Orca Whirlpool Program ID (Mainnet/Devnet)
+/// Orca Whirlpool Program ID
+/// NOTE: This program ID is the same on both Mainnet and Devnet
+/// Address: whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc
 pub const ORCA_WHIRLPOOL_PROGRAM_ID: Pubkey = pubkey!("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc");
 
 // ============================================================================
@@ -429,6 +431,10 @@ pub fn deposit_liquidity_to_orca(
         ctx.accounts.token_mint_b.decimals
     )?;
 
+    // Get balance after transfer (before Orca call)
+    // This represents the total amount available for Orca to use
+    let balance_after_transfer = ctx.accounts.collection_reserve_b.amount;
+
     // STEP 2: Execute Orca CPI
     msg!("Step 2: Preparing Orca CPI...");
     
@@ -501,6 +507,54 @@ pub fn deposit_liquidity_to_orca(
         ],
         signer_seeds,
     )?;
+
+    // STEP 3: Refund unused token B back to creator
+    // Reload the account to get updated balance after Orca call
+    ctx.accounts.collection_reserve_b.reload()?;
+    let balance_after_orca = ctx.accounts.collection_reserve_b.amount;
+    
+    // Calculate how much was actually used by Orca
+    // This is the difference between balance after transfer and balance after Orca
+    let actual_used = balance_after_transfer
+        .checked_sub(balance_after_orca)
+        .ok_or(ProtocolError::MathOverflow)?;
+    
+    // Calculate refund amount: token_max_b - actual_used
+    // This refunds any excess that wasn't needed due to pool price
+    // Note: If there was a previous balance in collection_reserve_b, we only refund
+    // the excess from the token_max_b we just transferred, not from the previous balance
+    let refund_amount = token_max_b
+        .checked_sub(actual_used)
+        .ok_or(ProtocolError::MathOverflow)?;
+    
+    if refund_amount > 0 {
+        msg!("Refunding unused token B: {} (provided: {}, used: {})", 
+             refund_amount, token_max_b, actual_used);
+        
+        // Transfer refund from collection_reserve_b back to creator
+        let refund_accounts = TransferChecked {
+            from: ctx.accounts.collection_reserve_b.to_account_info(),
+            mint: ctx.accounts.token_mint_b.to_account_info(),
+            to: ctx.accounts.creator_token_b.to_account_info(),
+            authority: ctx.accounts.collection.to_account_info(),
+        };
+        
+        let refund_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            refund_accounts,
+            signer_seeds,
+        );
+        
+        anchor_spl::token_interface::transfer_checked(
+            refund_ctx,
+            refund_amount,
+            ctx.accounts.token_mint_b.decimals
+        )?;
+        
+        msg!("Refund complete: {} tokens returned to creator", refund_amount);
+    } else {
+        msg!("No refund needed: all {} tokens were used", token_max_b);
+    }
 
     msg!("=== Flash Deposit Complete! ===");
     Ok(())
