@@ -1,11 +1,14 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface, MintTo};
+use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface, MintTo, Burn, burn};
+use anchor_spl::associated_token::AssociatedToken;
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
+use spl_token_2022::extension::ExtensionType;
+use spl_token_2022::instruction::initialize_mint;
 
 #[derive(Accounts)]
-#[instruction(collection_id: String, name: String, content_cid: String, access_threshold_usd: u64)]
+#[instruction(collection_id: String, name: String, cid_hash: [u8; 32], access_threshold_usd: u64)]
 pub struct CreateCollection<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
@@ -30,19 +33,28 @@ pub struct CreateCollection<'info> {
     #[account(mut)]
     pub claim_vault: UncheckedAccount<'info>,
 
-    /// Token mint account (PDA derived from collection)
+    /// CHECK: Manual creation to support Transfer Fee Extension
     #[account(
-        init_if_needed,
-        payer = owner,
-        mint::decimals = 6,
-        mint::authority = collection,
-        mint::freeze_authority = collection,
+        mut,
         seeds = [b"mint", collection.key().as_ref()],
         bump
     )]
-    pub mint: InterfaceAccount<'info, Mint>,
+    pub mint: UncheckedAccount<'info>,
 
-    pub token_program: Interface<'info, TokenInterface>,
+    /// CHECK: The DAO Treasury that will receive withheld fees
+    /// Validated against GlobalState treasury
+    pub treasury: UncheckedAccount<'info>,
+
+    /// Global state account containing the protocol treasury address
+    #[account(
+        seeds = [crate::constants::SEED_GLOBAL_STATE],
+        bump = global_state.bump
+    )]
+    pub global_state: Account<'info, GlobalState>,
+
+    /// CHECK: Token-2022 program (required for Transfer Fee Extension)
+    #[account(address = spl_token_2022::ID)]
+    pub token_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
     pub clock: Sysvar<'info, Clock>,
     pub rent: Sysvar<'info, Rent>,
@@ -52,18 +64,25 @@ pub fn create_collection(
     ctx: Context<CreateCollection>,
     collection_id: String,
     name: String,
-    content_cid: String,
+    cid_hash: [u8; 32],
     access_threshold_usd: u64,
 ) -> Result<()> {
     require!(collection_id.len() <= MAX_ID_LEN, ProtocolError::StringTooLong);
     require!(name.len() <= MAX_NAME_LEN, ProtocolError::StringTooLong);
-    require!(content_cid.len() <= MAX_URL_LEN, ProtocolError::StringTooLong);
+    
+    // Validate that the treasury matches the GlobalState treasury
+    require!(
+        ctx.accounts.treasury.key() == ctx.accounts.global_state.treasury,
+        ProtocolError::Unauthorized
+    );
 
     let clock = &ctx.accounts.clock;
     let collection = &mut ctx.accounts.collection;
     
-    collection.owner = ctx.accounts.owner.key();
-    collection.collection_id = collection_id;
+    let owner_key = ctx.accounts.owner.key();
+    collection.owner = owner_key;
+    collection.collection_id = collection_id.clone();
+    collection.cid_hash = cid_hash;
     collection.mint = ctx.accounts.mint.key();
     collection.pool_address = ctx.accounts.pool_address.key();
     collection.claim_vault = ctx.accounts.claim_vault.key();
@@ -73,22 +92,79 @@ pub fn create_collection(
     collection.total_trust_score = 0;
     collection.is_blacklisted = false;
     collection.name = name;
-    collection.content_cid = content_cid;
+    collection.content_cid = String::from(""); // Deprecated field, kept for backward compatibility
     collection.access_threshold_usd = access_threshold_usd;
     collection.oracle_feed = ctx.accounts.oracle_feed.key();
     
     // Initialize reward trackers
-    collection.reward_pool_balance = 0;
     collection.owner_reward_balance = 0;
-    collection.performer_escrow_balance = 0;
     collection.staker_reward_balance = 0;
-    collection.total_shares = 0;
-    collection.acc_reward_per_share = 0;
+    collection.tokens_minted = false; // Tokens not yet minted
     collection.bump = ctx.bumps.collection;
 
-    // Mint is automatically created and initialized by Anchor's init constraint
-    // The mint authority is set to the collection PDA, which allows the collection
-    // to control minting and freezing of tokens
+    // --- MANUAL MINT CREATION (NO TRANSFER FEE EXTENSION) ---
+    // NOTE: Transfer fees are now manually collected only on purchases/sales,
+    // not on staking or normal transfers. This allows fees to be selective.
+
+    // 1. Calculate space required for Mint (standard Token-2022, no extensions)
+    let space = ExtensionType::try_calculate_account_len::<spl_token_2022::state::Mint>(
+        &[], // No extensions
+    ).map_err(|_| ProtocolError::MathOverflow)?;
+
+    // 2. Calculate Rent
+    let rent_lamports = ctx.accounts.rent.minimum_balance(space);
+    let space_u64 = u64::try_from(space).map_err(|_| ProtocolError::MathOverflow)?;
+
+    // 3. Prepare Seeds for Signing (Mint is a PDA of Collection)
+    let seeds = [
+        b"mint".as_ref(),
+        ctx.accounts.collection.to_account_info().key.as_ref(),
+        &[ctx.bumps.mint],
+    ];
+    let signer = &[&seeds[..]];
+
+    // 4. Create the Account (System Program CPI)
+    anchor_lang::solana_program::program::invoke_signed(
+        &anchor_lang::solana_program::system_instruction::create_account(
+            ctx.accounts.owner.key,
+            ctx.accounts.mint.key,
+            rent_lamports,
+            space_u64,
+            ctx.accounts.token_program.key,
+        ),
+        &[
+            ctx.accounts.owner.to_account_info(),
+            ctx.accounts.mint.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
+        ],
+        signer,
+    )?;
+
+    // 5. Initialize the Mint (Standard Token-2022, no transfer fee extension)
+    anchor_lang::solana_program::program::invoke_signed(
+        &initialize_mint(
+            ctx.accounts.token_program.key,
+            ctx.accounts.mint.key,
+            &ctx.accounts.collection.key(), // Mint Authority
+            Some(&ctx.accounts.collection.key()), // Freeze Authority
+            6, // Decimals
+        )?,
+        &[
+            ctx.accounts.mint.to_account_info(),
+            ctx.accounts.collection.to_account_info(),
+            ctx.accounts.rent.to_account_info(),
+        ],
+        signer,
+    )?;
+
+    // --- MANUAL MINT CREATION END ---
+
+    msg!(
+        "CollectionCreated: ID={} Owner={} CidHashSet=true Mint={} ManualFees=ConfigurableViaGlobalState",
+        collection_id,
+        owner_key,
+        ctx.accounts.mint.key()
+    );
 
     Ok(())
 }
@@ -138,12 +214,12 @@ pub struct MintCollectionTokens<'info> {
     #[account(
         mut,
         seeds = [b"collection", collection.owner.as_ref(), collection.collection_id.as_bytes()],
-        bump,
+        bump = collection.bump,
         constraint = collection.owner == creator.key() @ ProtocolError::Unauthorized
     )]
     pub collection: Account<'info, CollectionState>,
 
-    /// CHECK: The collection token mint (PDA derived from collection)
+    /// The collection token mint (PDA derived from collection)
     #[account(
         mut,
         seeds = [b"mint", collection.key().as_ref()],
@@ -160,46 +236,93 @@ pub struct MintCollectionTokens<'info> {
     pub creator_token_account: InterfaceAccount<'info, TokenAccount>,
 
     /// CHECK: Claim vault token account (PDA) to receive 10% of minted tokens
+    /// Validated by constraint against collection.claim_vault
     #[account(
         mut,
         constraint = claim_vault.key() == collection.claim_vault @ ProtocolError::Unauthorized
     )]
     pub claim_vault: UncheckedAccount<'info>,
 
-    /// CHECK: Orca DEX liquidity pool token account (or pool address)
-    /// This account will receive 80% of the minted tokens for liquidity provision
+    /// ✅ CORRECTED: Liquidity Reserve Account (receives 80%)
+    /// 
+    /// This is an Associated Token Account (ATA) owned by the Collection PDA.
+    /// It acts as a "staging" or "reserve" wallet for the protocol.
+    /// 
+    /// ⚠️ IMPORTANT: You CANNOT mint directly to an Orca Pool address because:
+    /// 1. The Whirlpool PDA is a data account, not a token account
+    /// 2. Even minting to Orca's vault wouldn't update liquidity state
+    /// 3. You wouldn't receive a position NFT
+    /// 
+    /// The correct workflow is:
+    /// 1. Mint 80% here (to liquidity_reserve)
+    /// 2. Call initialize_orca_pool() to create the pool
+    /// 3. Call deposit_liquidity_to_orca() to move tokens from here → Orca
     #[account(
-        mut,
-        constraint = orca_liquidity_pool.key() == collection.pool_address @ ProtocolError::Unauthorized
+        init_if_needed,
+        payer = creator,
+        associated_token::mint = mint,
+        associated_token::authority = collection,
     )]
-    pub orca_liquidity_pool: UncheckedAccount<'info>,
-
-    /// CHECK: Orca program ID (for CPI calls to Orca DEX)
-    /// In production, this should be the official Orca Whirlpool or StableSwap program ID
-    pub orca_program: UncheckedAccount<'info>,
+    pub liquidity_reserve: InterfaceAccount<'info, TokenAccount>,
 
     pub token_program: Interface<'info, TokenInterface>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
 
+/// Mint collection tokens with automatic 3-way distribution:
+/// - 10% to Creator
+/// - 10% to Claim Vault (for performer/contributor claims)
+/// - 80% to Liquidity Reserve (staging area for Orca pool)
+/// 
+/// ⚠️ CRITICAL: This does NOT directly add liquidity to Orca!
+/// 
+/// The 80% is minted to a "staging" account (liquidity_reserve) owned by the Collection PDA.
+/// To actually create liquidity on Orca, you must follow this workflow:
+/// 
+/// 1. **This instruction**: Mints 80% to `liquidity_reserve` (Collection's ATA)
+/// 2. **initialize_orca_pool()**: Creates the Whirlpool on Orca
+/// 3. **deposit_liquidity_to_orca()**: Transfers tokens from `liquidity_reserve` → Orca pool
+/// 
+/// Why we can't mint directly to Orca:
+/// - Orca's Whirlpool address is a data account, not a token account
+/// - Minting to Orca's vault wouldn't update liquidity state or position tracking
+/// - You wouldn't receive a position NFT representing your liquidity
+/// 
+/// This multi-step approach is necessary due to:
+/// - Compute Unit limits (each step is expensive)
+/// - Transaction size limits (Orca requires many accounts)
+/// - Proper position NFT issuance
 pub fn mint_collection_tokens(
     ctx: Context<MintCollectionTokens>,
     amount: u64,
 ) -> Result<()> {
     require!(amount > 0, ProtocolError::InvalidFeeConfig);
 
-    let collection = &ctx.accounts.collection;
+    // Get values before mutable borrow
+    let collection_account_info = ctx.accounts.collection.to_account_info();
+    let collection_owner = ctx.accounts.collection.owner;
+    let collection_id = ctx.accounts.collection.collection_id.clone();
+    let collection_bump = ctx.accounts.collection.bump;
+    let collection_mint = ctx.accounts.collection.mint;
+    let tokens_minted = ctx.accounts.collection.tokens_minted;
     let mint = &ctx.accounts.mint;
-    let creator = &ctx.accounts.creator;
+
+    // ⚠️ SECURITY: Enforce one-time minting per collection
+    // According to the design doc, collection tokens should only be minted once ever per collection
+    require!(
+        !tokens_minted,
+        ProtocolError::Unauthorized // Tokens already minted for this collection
+    );
 
     // Verify the mint matches the collection's mint
     require!(
-        mint.key() == collection.mint,
+        mint.key() == collection_mint,
         ProtocolError::Unauthorized
     );
 
-    // Calculate distribution: 80% to Orca, 10% to creator, 10% to claim vault
-    let orca_amount = amount
+    // Calculate distribution: 80% to reserve, 10% to creator, 10% to claim vault
+    let reserve_amount = amount
         .checked_mul(80)
         .ok_or(ProtocolError::MathOverflow)?
         .checked_div(100)
@@ -218,89 +341,87 @@ pub fn mint_collection_tokens(
         .ok_or(ProtocolError::MathOverflow)?;
 
     // Verify the split is correct (accounting for rounding)
-    let total_distributed = orca_amount
+    let total_distributed = reserve_amount
         .checked_add(creator_amount)
         .and_then(|v| v.checked_add(claim_vault_amount))
         .ok_or(ProtocolError::MathOverflow)?;
     
-    // Handle any rounding remainder by adjusting orca amount
+    // Handle any rounding remainder by adjusting reserve amount
     let remainder = amount.saturating_sub(total_distributed);
-    let final_orca_amount = orca_amount
+    let final_reserve_amount = reserve_amount
         .checked_add(remainder)
-        .unwrap_or(orca_amount);
-    let final_creator_amount = creator_amount;
-    let final_claim_vault_amount = claim_vault_amount;
+        .unwrap_or(reserve_amount);
 
-    // 1. Mint tokens to creator and Orca
-    // Since the mint authority is the collection PDA, we use CPI to mint
-    let collection_bump = ctx.bumps.collection;
-    let seeds = &[
-        b"collection",
-        collection.owner.as_ref(),
-        collection.collection_id.as_bytes(),
+    // Prepare PDA signer seeds (Collection PDA is the mint authority)
+    let seeds = [
+        b"collection".as_ref(),
+        collection_owner.as_ref(),
+        collection_id.as_bytes(),
         &[collection_bump],
     ];
     let signer = &[&seeds[..]];
 
-    // 1. Mint tokens to creator's account (10%)
-    let cpi_accounts = MintTo {
+    // 1. Mint 10% to creator's token account
+    let creator_cpi_accounts = MintTo {
         mint: ctx.accounts.mint.to_account_info(),
         to: ctx.accounts.creator_token_account.to_account_info(),
-        authority: ctx.accounts.collection.to_account_info(),
+        authority: collection_account_info.clone(),
     };
-    let cpi_program = ctx.accounts.token_program.to_account_info();
-    let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
-    anchor_spl::token_interface::mint_to(cpi_ctx, final_creator_amount)?;
+    let creator_cpi_ctx = CpiContext::new_with_signer(
+        ctx.accounts.token_program.to_account_info(),
+        creator_cpi_accounts,
+        signer
+    );
+    anchor_spl::token_interface::mint_to(creator_cpi_ctx, creator_amount)?;
 
-    // 2. Mint tokens to claim vault (10%)
-    let claim_vault_cpi_accounts = MintTo {
+    // 2. Mint 10% to claim vault
+    let vault_cpi_accounts = MintTo {
         mint: ctx.accounts.mint.to_account_info(),
         to: ctx.accounts.claim_vault.to_account_info(),
-        authority: ctx.accounts.collection.to_account_info(),
+        authority: collection_account_info.clone(),
     };
-    let claim_vault_cpi_program = ctx.accounts.token_program.to_account_info();
-    let claim_vault_cpi_ctx = CpiContext::new_with_signer(claim_vault_cpi_program, claim_vault_cpi_accounts, signer);
-    anchor_spl::token_interface::mint_to(claim_vault_cpi_ctx, final_claim_vault_amount)?;
+    let vault_cpi_ctx = CpiContext::new_with_signer(
+        ctx.accounts.token_program.to_account_info(),
+        vault_cpi_accounts,
+        signer
+    );
+    anchor_spl::token_interface::mint_to(vault_cpi_ctx, claim_vault_amount)?;
 
-    // 3. Mint tokens to Orca liquidity pool (80%)
-    // Note: In production, this would involve:
-    // - Creating or finding an Orca Whirlpool/StableSwap pool
-    // - Providing both sides of the liquidity pair (Collection Token + CAPGM)
-    // - Using CPI to call Orca's program instructions
-    // For now, we mint directly to the provided Orca account
-    // TODO: Implement full Orca DEX integration with proper pool creation and liquidity provision
-    
-    let orca_cpi_accounts = MintTo {
+    // 3. Mint 80% to liquidity reserve (staging account for Orca)
+    // These tokens sit here until deposit_liquidity_to_orca() is called
+    let reserve_cpi_accounts = MintTo {
         mint: ctx.accounts.mint.to_account_info(),
-        to: ctx.accounts.orca_liquidity_pool.to_account_info(),
-        authority: ctx.accounts.collection.to_account_info(),
+        to: ctx.accounts.liquidity_reserve.to_account_info(),
+        authority: collection_account_info.clone(),
     };
-    let orca_cpi_program = ctx.accounts.token_program.to_account_info();
-    let orca_cpi_ctx = CpiContext::new_with_signer(orca_cpi_program, orca_cpi_accounts, signer);
-    anchor_spl::token_interface::mint_to(orca_cpi_ctx, final_orca_amount)?;
+    let reserve_cpi_ctx = CpiContext::new_with_signer(
+        ctx.accounts.token_program.to_account_info(),
+        reserve_cpi_accounts,
+        signer
+    );
+    anchor_spl::token_interface::mint_to(reserve_cpi_ctx, final_reserve_amount)?;
 
-    // 3. In production, after minting to Orca pool account, you would:
-    //    - Call Orca's initialize_pool or add_liquidity instruction via CPI
-    //    - Provide CAPGM tokens as the other side of the pair
-    //    - Handle LP token receipt and storage
-    // Example structure (pseudo-code):
-    // let orca_ix = orca::instruction::AddLiquidity {
-    //     pool: orca_pool_account,
-    //     token_a: collection_token_account,
-    //     token_b: capgm_token_account,
-    //     amount_a: final_orca_amount,
-    //     amount_b: capgm_amount,
-    //     ...
-    // };
-    // invoke_signed(&orca_ix, &orca_accounts, &signer_seeds)?;
+    // Mark tokens as minted (one-time operation - cannot mint again)
+    let collection = &mut ctx.accounts.collection;
+    collection.tokens_minted = true;
 
     msg!(
-        "CollectionTokensMinted: Collection={} Creator={} CreatorAmount={} ClaimVaultAmount={} OrcaAmount={}",
-        collection.collection_id,
-        creator.key(),
-        final_creator_amount,
-        final_claim_vault_amount,
-        final_orca_amount
+        "CollectionTokensMinted: Collection={} Mint={} TotalAmount={}",
+        collection_id,
+        mint.key(),
+        amount
+    );
+    msg!(
+        "Distribution: Creator={}(10%) ClaimVault={}(10%) LiquidityReserve={}(80%)",
+        creator_amount,
+        claim_vault_amount,
+        final_reserve_amount
+    );
+    msg!(
+        "NEXT STEPS: 1) initialize_orca_pool() to create Whirlpool. 2) deposit_liquidity_to_orca() to move tokens from reserve → Orca."
+    );
+    msg!(
+        "SECURITY: Tokens marked as minted - this collection cannot mint tokens again"
     );
 
     Ok(())
@@ -318,12 +439,20 @@ pub struct BurnUnclaimedTokens<'info> {
     )]
     pub collection: Account<'info, CollectionState>,
 
-    /// CHECK: Claim vault token account (PDA) holding the 10% reserve
+    /// Claim vault PDA (authority for the token account)
+    #[account(
+        seeds = [SEED_CLAIM_VAULT, collection.key().as_ref()],
+        bump
+    )]
+    pub claim_vault_pda: UncheckedAccount<'info>,
+
+    /// Claim vault token account (ATA owned by claim_vault PDA) holding the 10% reserve
     #[account(
         mut,
-        constraint = claim_vault.key() == collection.claim_vault @ ProtocolError::Unauthorized
+        constraint = claim_vault.key() == collection.claim_vault @ ProtocolError::Unauthorized,
+        constraint = claim_vault.mint == mint.key() @ ProtocolError::Unauthorized
     )]
-    pub claim_vault: UncheckedAccount<'info>,
+    pub claim_vault: InterfaceAccount<'info, TokenAccount>,
 
     /// CHECK: Collection token mint
     #[account(
@@ -350,19 +479,45 @@ pub fn burn_unclaimed_tokens(ctx: Context<BurnUnclaimedTokens>) -> Result<()> {
         ProtocolError::Unauthorized // Use Unauthorized as a generic error for "not yet available"
     );
 
-    // In production: 
-    // 1. Get the balance of the claim_vault token account
-    // 2. Use CPI to burn those tokens from the mint
-    // 3. This permanently reduces the total supply
+    // Get the balance of the claim_vault token account
+    let claim_vault_account = &ctx.accounts.claim_vault;
+    let amount_to_burn = claim_vault_account.amount;
+    
+    require!(
+        amount_to_burn > 0,
+        ProtocolError::InsufficientFunds
+    );
 
-    // For now, we just log the event
-    // TODO: Implement actual token burning via CPI to token program's burn instruction
+    // Derive the claim_vault PDA seeds for signing
+    // The claim_vault PDA owns the token account and must sign the burn
+    let collection_key = collection.key();
+    let claim_vault_seeds = &[
+        SEED_CLAIM_VAULT,
+        collection_key.as_ref(),
+        &[ctx.bumps.claim_vault_pda],
+    ];
+    let signer_seeds = &[&claim_vault_seeds[..]];
+
+    // Burn the tokens permanently (reduces collection token supply)
+    let burn_ix = Burn {
+        mint: ctx.accounts.mint.to_account_info(),
+        from: ctx.accounts.claim_vault.to_account_info(),
+        authority: ctx.accounts.claim_vault_pda.to_account_info(), // claim_vault PDA is the authority
+    };
+    
+    let cpi_ctx = CpiContext::new_with_signer(
+        ctx.accounts.token_program.to_account_info(),
+        burn_ix,
+        signer_seeds,
+    );
+    burn(cpi_ctx, amount_to_burn)?;
 
     msg!(
-        "UnclaimedTokensBurned: Collection={} Deadline={} CurrentTime={}",
+        "UnclaimedTokensBurned: Collection={} Deadline={} CurrentTime={} AmountBurned={}",
         collection.collection_id,
         collection.claim_deadline,
-        clock.unix_timestamp
+        clock.unix_timestamp,
+        amount_to_burn
     );
 
     Ok(())

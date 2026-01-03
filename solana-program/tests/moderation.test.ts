@@ -125,39 +125,6 @@ describe("Moderation", () => {
       expect(ticket.ticketType).to.deep.equal({ copyrightClaim: {} });
     });
 
-    it("Successfully creates PerformerClaim ticket", async () => {
-      const uniqueTargetId = `target-performer-${Date.now()}`;
-      const [ticketPDA] = getModTicketPDA(uniqueTargetId);
-
-      // Check if ticket already exists
-      try {
-        await program.account.modTicket.fetch(ticketPDA);
-        // Ticket exists, verify it
-        const ticket = await program.account.modTicket.fetch(ticketPDA);
-        expect(ticket.targetId).to.equal(uniqueTargetId);
-        return;
-      } catch {
-        // Ticket doesn't exist, create it
-      }
-
-      const tx = await program.methods
-        .createTicket(
-          uniqueTargetId,
-          { performerClaim: {} },
-          REASON
-        )
-        .accountsPartial({
-          reporter: performer.publicKey,
-          ticket: ticketPDA,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([performer])
-        .rpc();
-
-      const ticket = await program.account.modTicket.fetch(ticketPDA);
-      expect(ticket.targetId).to.equal(uniqueTargetId);
-    });
-
     it("Fails if target_id exceeds MAX_ID_LEN", async () => {
       // Use a test user to avoid conflicts
       const testUser = Keypair.generate();

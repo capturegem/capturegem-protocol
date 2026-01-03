@@ -1,6 +1,6 @@
 // solana-program/programs/solana-program/src/instructions/moderation.rs
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{TokenInterface, Transfer};
+use anchor_spl::token_interface::{TokenInterface, TransferChecked, Mint};
 use crate::state::*;
 use crate::errors::ProtocolError;
 use crate::constants::*;
@@ -30,7 +30,13 @@ pub struct CreateTicket<'info> {
     )]
     pub ticket: Account<'info, ModTicket>,
     
+    /// Optional: Collection account (required if ticket_type is CopyrightClaim)
+    /// Used to verify the claim deadline hasn't passed at ticket creation time
+    #[account(mut)]
+    pub collection: Option<Account<'info, CollectionState>>,
+    
     pub system_program: Program<'info, System>,
+    pub clock: Sysvar<'info, Clock>,
 }
 
 #[derive(Accounts)]
@@ -102,6 +108,9 @@ pub struct ResolveCopyrightClaim<'info> {
     #[account(mut)]
     pub claimant_token_account: UncheckedAccount<'info>,
 
+    /// Collection token mint (for transfer_checked)
+    pub collection_mint: InterfaceAccount<'info, Mint>,
+
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
     pub clock: Sysvar<'info, Clock>,
@@ -116,7 +125,23 @@ pub fn create_ticket(
     require!(target_id.len() <= crate::state::MAX_ID_LEN, ProtocolError::StringTooLong);
     require!(reason.len() <= crate::state::MAX_REASON_LEN, ProtocolError::StringTooLong);
     
+    // ⚠️ SECURITY: For CopyrightClaim tickets, verify the claim deadline hasn't passed
+    // This prevents creating tickets after the deadline, but once created, tickets remain
+    // resolvable even if the deadline passes during moderator deliberation.
+    if ticket_type == TicketType::CopyrightClaim {
+        let collection = ctx.accounts.collection.as_ref()
+            .ok_or(ProtocolError::Unauthorized)?;
+        let clock = &ctx.accounts.clock;
+        
+        require!(
+            clock.unix_timestamp < collection.claim_deadline,
+            ProtocolError::Unauthorized
+        );
+    }
+    
     let ticket = &mut ctx.accounts.ticket;
+    let clock = &ctx.accounts.clock;
+    
     ticket.reporter = ctx.accounts.reporter.key();
     ticket.target_id = target_id;
     ticket.ticket_type = ticket_type;
@@ -124,6 +149,7 @@ pub fn create_ticket(
     ticket.resolved = false;
     ticket.verdict = false;
     ticket.resolver = None;
+    ticket.created_at = clock.unix_timestamp;
     ticket.bump = ctx.bumps.ticket;
     Ok(())
 }
@@ -159,12 +185,11 @@ pub fn resolve_ticket(ctx: Context<ResolveTicket>, verdict: bool) -> Result<()> 
 /// Resolves a copyright claim by transferring the claim vault tokens to the claimant.
 /// This is called when a moderator approves a CopyrightClaim ticket.
 /// 
-/// Note: In production, the vault_amount should be read from the claim_vault token account.
-/// For now, it's provided as a parameter to avoid complex deserialization.
-pub fn resolve_copyright_claim(ctx: Context<ResolveCopyrightClaim>, verdict: bool, vault_amount: u64) -> Result<()> {
+/// ⚠️ SECURITY: Automatically reads the full balance from claim_vault to prevent
+/// accidental or malicious partial transfers that would leave dust in the vault.
+pub fn resolve_copyright_claim(ctx: Context<ResolveCopyrightClaim>, verdict: bool) -> Result<()> {
     let ticket = &mut ctx.accounts.ticket;
     let collection = &mut ctx.accounts.collection;
-    let clock = &ctx.accounts.clock;
 
     // Verify this is a copyright claim ticket
     require!(
@@ -176,11 +201,11 @@ pub fn resolve_copyright_claim(ctx: Context<ResolveCopyrightClaim>, verdict: boo
         return err!(ProtocolError::TicketAlreadyResolved);
     }
 
-    // Verify claim deadline hasn't passed
-    require!(
-        clock.unix_timestamp < collection.claim_deadline,
-        ProtocolError::Unauthorized
-    );
+    // ⚠️ SECURITY: Deadline check removed from resolution.
+    // The deadline is now enforced at ticket creation time (in create_ticket).
+    // Once a ticket is created before the deadline, it remains resolvable even if
+    // the deadline passes during moderator deliberation. This prevents legitimate
+    // claims from being invalidated due to processing delays.
 
     ticket.resolved = true;
     ticket.verdict = verdict; // true = approved (claimant gets vault), false = rejected
@@ -188,7 +213,19 @@ pub fn resolve_copyright_claim(ctx: Context<ResolveCopyrightClaim>, verdict: boo
 
     // If approved, transfer claim vault tokens to claimant
     if verdict {
-        require!(vault_amount > 0, ProtocolError::InsufficientFunds);
+        // ⚠️ SECURITY: Read actual balance from claim_vault token account
+        // SPL Token account structure: mint (32 bytes) + owner (32 bytes) + amount (8 bytes) at offset 64
+        let token_account_data = ctx.accounts.claim_vault.try_borrow_data()?;
+        require!(
+            token_account_data.len() >= 72, // At least 64 + 8 bytes
+            ProtocolError::InvalidAccount
+        );
+        let amount_bytes = &token_account_data[64..72];
+        let vault_balance = u64::from_le_bytes(
+            amount_bytes.try_into().map_err(|_| ProtocolError::InvalidAccount)?
+        );
+        
+        require!(vault_balance > 0, ProtocolError::InsufficientFunds);
         
         // Get collection info before mutable borrow
         let collection_id = collection.collection_id.clone();
@@ -205,21 +242,23 @@ pub fn resolve_copyright_claim(ctx: Context<ResolveCopyrightClaim>, verdict: boo
         ];
         let collection_signer = &[&collection_seeds[..]];
         
-        // Transfer tokens from claim_vault to claimant_token_account
-        let transfer_ix = Transfer {
+        // Transfer all tokens from claim_vault to claimant_token_account
+        let transfer_ix = TransferChecked {
             from: ctx.accounts.claim_vault.to_account_info(),
+            mint: ctx.accounts.collection_mint.to_account_info(),
             to: ctx.accounts.claimant_token_account.to_account_info(),
             authority: ctx.accounts.collection.to_account_info(),
         };
         let cpi_program = ctx.accounts.token_program.to_account_info();
         let cpi_ctx = CpiContext::new_with_signer(cpi_program, transfer_ix, collection_signer);
-        anchor_spl::token_interface::transfer(cpi_ctx, vault_amount)?;
+        anchor_spl::token_interface::transfer_checked(cpi_ctx, vault_balance, ctx.accounts.collection_mint.decimals)?;
         
         msg!(
-            "CopyrightClaimApproved: Collection={} Claimant={} Vault={}",
+            "CopyrightClaimApproved: Collection={} Claimant={} Vault={} Amount={}",
             collection_id,
             ticket.reporter,
-            claim_vault_key
+            claim_vault_key,
+            vault_balance
         );
     } else {
         msg!(

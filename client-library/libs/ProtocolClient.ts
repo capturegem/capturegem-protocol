@@ -1,17 +1,18 @@
-// library-source/libs/ProtocolClient.ts
+// client-library/libs/ProtocolClient.ts
 import * as anchor from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { WalletManager, RiskLevel } from "./WalletManager";
+import { SolanaProgram } from "../../solana-program/target/types/solana_program";
 
 // Seeds must match Rust constants
 const SEED_COLLECTION_STATE = Buffer.from("collection_state");
 const SEED_VIEW_RIGHT = Buffer.from("view_right");
 
 export class ProtocolClient {
-  program: anchor.Program;
+  program: anchor.Program<SolanaProgram>;
   walletManager: WalletManager;
 
-  constructor(program: anchor.Program, walletManager: WalletManager) {
+  constructor(program: anchor.Program<SolanaProgram>, walletManager: WalletManager) {
     this.program = program;
     this.walletManager = walletManager;
   }
@@ -26,11 +27,15 @@ export class ProtocolClient {
     accessThresholdUsd: number,
     oracleFeed: PublicKey
   ) {
-    const owner = this.walletManager.getPublicKey();
+    const owner = this.walletManager.getActivePublicKey();
     const [collectionStatePda] = PublicKey.findProgramAddressSync(
       [Buffer.from("collection"), owner.toBuffer(), Buffer.from(collectionId)],
       this.program.programId
     );
+
+    // Hash the CID for storage
+    const { hashCID } = await import("./CryptoUtils");
+    const cidHash = Array.from(hashCID(contentCid));
 
     // Derive mint PDA (would be created by the instruction)
     // In production, the mint is created via CPI in the instruction
@@ -39,14 +44,14 @@ export class ProtocolClient {
       .createCollection(
         collectionId, 
         name,
-        contentCid,
+        cidHash,
         new anchor.BN(accessThresholdUsd)
       )
-      .accounts({
+      .accountsPartial({
         owner: owner,
-        collection: collectionStatePda,
         oracleFeed: oracleFeed,
-        // mint, token_program, system_program, rent are handled by Anchor
+        // collection, mint, claimVault, poolAddress are PDAs auto-resolved by Anchor
+        // tokenProgram, systemProgram, clock, rent are handled by Anchor
       })
       .transaction();
 
@@ -55,9 +60,10 @@ export class ProtocolClient {
 
   /**
    * Checks USD value of holdings and mints/renews access.
+   * Note: This method may need to be updated to match actual program instructions.
    */
-  async buyAccessToken(collectionId: string, ownerPubkey: PublicKey) {
-    const user = this.walletManager.getPublicKey();
+  async buyAccessToken(collectionId: string, ownerPubkey: PublicKey): Promise<string> {
+    const user = this.walletManager.getActivePublicKey();
     
     // Derive Collection State
     const [collectionStatePda] = PublicKey.findProgramAddressSync(
@@ -72,20 +78,18 @@ export class ProtocolClient {
     );
 
     // Fetch collection to get Mint address and Oracle feed
-    // const colAccount = await this.program.account.collectionState.fetch(collectionStatePda);
+    const colAccount = await this.program.account.collectionState.fetch(collectionStatePda);
 
-    const tx = await this.program.methods
-      .buyAccessToken()
-      .accounts({
-        payer: user,
-        collection: collectionStatePda,
-        buyerTokenAccount: PublicKey.default, // TODO: Derive actual token account
-        oracleFeed: PublicKey.default, // TODO: Get from collection state
-        viewRights: viewRightsPda,
-      })
-      .transaction();
+    // Derive buyer's token account
+    const { getAssociatedTokenAddress } = await import("@solana/spl-token");
+    const buyerTokenAccount = await getAssociatedTokenAddress(
+      colAccount.mint,
+      user
+    );
 
-    return this.walletManager.signTransaction(tx, RiskLevel.HIGH); // Moving assets is High Risk
+    // TODO: This instruction may not exist in the current program
+    // Use purchaseAccess from AccessClient instead
+    throw new Error("buyAccessToken is deprecated. Use AccessClient.purchaseAccess() instead");
   }
 
   private getUserAccountPda(authority: PublicKey): PublicKey {

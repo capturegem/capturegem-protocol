@@ -24,10 +24,16 @@ pub enum ProtocolError {
     CollectionNotFound,
     #[msg("View rights expired.")]
     ViewRightsExpired,
-    #[msg("Audit window expired.")]
-    AuditWindowExpired,
-    #[msg("Performer escrow not found.")]
-    PerformerEscrowNotFound,
     #[msg("User account not initialized.")]
     UserAccountNotInitialized,
+    #[msg("Escrow has expired (24 hours passed).")]
+    EscrowExpired,
+    #[msg("Escrow has not expired yet (cannot burn).")]
+    EscrowNotExpired,
+    #[msg("Insufficient initial liquidity provided. Creator must provide minimum CAPGM to pair with collection tokens.")]
+    InsufficientInitialLiquidity,
+    #[msg("Invalid account provided.")]
+    InvalidAccount,
+    #[msg("Peer list length exceeds maximum allowed limit.")]
+    PeerListTooLong,
 }

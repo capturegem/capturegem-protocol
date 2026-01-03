@@ -113,7 +113,7 @@ describe("Integration Tests", () => {
   });
 
   describe("Complete Pinner Flow", () => {
-    it("Register → Submit audit → Claim rewards", async () => {
+    it("Register → Claim rewards", async () => {
       // Ensure prerequisites exist
       const { ensureProtocolInitialized, ensureUserAccountInitialized } = await import("./helpers/setup");
       await ensureProtocolInitialized();
@@ -165,21 +165,7 @@ describe("Integration Tests", () => {
         .signers([pinner])
         .rpc();
 
-      // 2. Submit successful audit
-      const authority = Keypair.generate();
-      await provider.connection.requestAirdrop(authority.publicKey, 2 * 1e9);
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      await program.methods
-        .submitAuditResult(true)
-        .accounts({
-          authority: authority.publicKey,
-          pinnerState: pinnerStatePDA,
-        })
-        .signers([authority])
-        .rpc();
-
-      // 3. Try to claim rewards (will fail if no rewards, but flow is correct)
+      // 2. Try to claim rewards (will fail if no rewards, but flow is correct)
       try {
         await program.methods
           .claimRewards()

@@ -25,10 +25,10 @@ pub mod solana_program {
         ctx: Context<CreateCollection>, 
         collection_id: String, 
         name: String, 
-        content_cid: String, 
+        cid_hash: [u8; 32],
         access_threshold_usd: u64
     ) -> Result<()> {
-        instructions::user::create_collection(ctx, collection_id, name, content_cid, access_threshold_usd)
+        instructions::user::create_collection(ctx, collection_id, name, cid_hash, access_threshold_usd)
     }
 
     pub fn buy_access_token(ctx: Context<BuyAccess>) -> Result<()> {
@@ -37,18 +37,6 @@ pub mod solana_program {
 
     pub fn register_collection_host(ctx: Context<RegisterHost>) -> Result<()> {
         instructions::pinner::register_collection_host(ctx)
-    }
-
-    pub fn claim_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
-        instructions::pinner::claim_rewards(ctx)
-    }
-    
-    pub fn submit_audit_result(ctx: Context<SubmitAudit>, success: bool) -> Result<()> {
-        instructions::pinner::submit_audit_result(ctx, success)
-    }
-
-    pub fn harvest_fees(ctx: Context<HarvestFees>) -> Result<()> {
-        instructions::treasury::harvest_fees(ctx)
     }
 
     pub fn initialize_protocol(
@@ -72,12 +60,6 @@ pub mod solana_program {
         ctx: Context<SlashModerator>,
     ) -> Result<()> {
         instructions::staking::slash_moderator(ctx)
-    }
-
-    pub fn claim_performer_escrow(
-        ctx: Context<ClaimPerformerEscrow>,
-    ) -> Result<()> {
-        instructions::performer::claim_performer_escrow(ctx)
     }
 
     pub fn create_ticket(
