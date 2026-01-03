@@ -12,6 +12,17 @@ export { ProtocolClient } from "./libs/ProtocolClient";
 export { WalletManager, RiskLevel } from "./libs/WalletManager";
 export { IpfsManager } from "./libs/IpfsManager";
 export { IndexerClient } from "./libs/IndexerClient";
+export { AccessClient } from "./libs/AccessClient";
+export { PinnerClient } from "./libs/PinnerClient";
+
+// Crypto utilities
+export * from "./libs/CryptoUtils";
+
+// Types
+export * from "./libs/types";
+
+// Constants
+export * from "./libs/constants";
 
 // Re-export useful types from dependencies
 export type {

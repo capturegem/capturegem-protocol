@@ -22,8 +22,10 @@ import {
   buildWhirlpoolClient,
   increaseLiquidityQuoteByInputTokenWithParams,
   ORCA_WHIRLPOOL_PROGRAM_ID,
+  NO_TOKEN_EXTENSION_CONTEXT,
 } from "@orca-so/whirlpools-sdk";
 import { Percentage } from "@orca-so/common-sdk";
+import Decimal from "decimal.js";
 import { WalletManager, RiskLevel } from "./WalletManager";
 
 /**
@@ -253,8 +255,9 @@ export class OrcaClient {
     decimalsA: number,
     decimalsB: number
   ): anchor.BN {
+    const priceDecimal = new Decimal(price);
     const sqrtPriceX64 = PriceMath.priceToSqrtPriceX64(
-      price,
+      priceDecimal,
       decimalsA,
       decimalsB
     );
@@ -272,7 +275,8 @@ export class OrcaClient {
     decimalsB: number,
     tickSpacing: number
   ): number {
-    const rawTick = TickUtil.priceToTickIndex(price, decimalsA, decimalsB);
+    const priceDecimal = new Decimal(price);
+    const rawTick = PriceMath.priceToTickIndex(priceDecimal, decimalsA, decimalsB);
     return TickUtil.getStartTickIndex(rawTick, tickSpacing);
   }
 
@@ -284,7 +288,8 @@ export class OrcaClient {
     decimalsA: number,
     decimalsB: number
   ): number {
-    return TickUtil.tickIndexToPrice(tickIndex, decimalsA, decimalsB);
+    const priceDecimal = PriceMath.tickIndexToPrice(tickIndex, decimalsA, decimalsB);
+    return priceDecimal.toNumber();
   }
 
   /**
@@ -332,6 +337,7 @@ export class OrcaClient {
       sqrtPrice: whirlpoolData.sqrtPrice,
       tickLowerIndex: positionData.tickLowerIndex,
       tickUpperIndex: positionData.tickUpperIndex,
+      tokenExtensionCtx: NO_TOKEN_EXTENSION_CONTEXT,
       slippageTolerance: Percentage.fromFraction(
         params.slippageTolerancePercent,
         100
@@ -785,7 +791,7 @@ export class OrcaClient {
       ...params,
     });
 
-    return await this.walletManager.signAndSendTransaction(
+    return await this.walletManager.signTransaction(
       tx,
       RiskLevel.HIGH
     );
@@ -813,10 +819,12 @@ export class OrcaClient {
         ...params,
       });
 
-    const signature = await this.walletManager.signAndSendTransaction(
+    // Sign transaction with position mint as additional signer
+    transaction.partialSign(positionMint);
+    
+    const signature = await this.walletManager.signTransaction(
       transaction,
-      RiskLevel.HIGH,
-      [positionMint] // Additional signer
+      RiskLevel.HIGH
     );
 
     return {
@@ -849,7 +857,7 @@ export class OrcaClient {
       ...params,
     });
 
-    return await this.walletManager.signAndSendTransaction(
+    return await this.walletManager.signTransaction(
       tx,
       RiskLevel.HIGH
     );

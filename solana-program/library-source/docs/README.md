@@ -10,6 +10,10 @@ TypeScript client library for interacting with the CaptureGem Protocol on Solana
 - ✅ **Token Sorting**: Automatic handling of Orca's token ordering requirements
 - ✅ **Compute Budget Management**: Automatic CU limit adjustments for expensive operations
 - ✅ **Type-Safe**: Full TypeScript support with Anchor integration
+- ✅ **CID Revelation**: Encrypted CID exchange between pinners and purchasers
+- ✅ **NFT Access Control**: Non-transferable Token-2022 NFTs for content access
+- ✅ **Cryptographic Verification**: SHA-256 hash commitments and X25519 encryption
+- ✅ **Real-Time Monitoring**: WebSocket subscriptions for purchase events
 
 ## Installation
 
@@ -25,7 +29,9 @@ npm install
   "@solana/web3.js": "^1.91.0",
   "@solana/spl-token": "^0.4.0",
   "@orca-so/whirlpools-sdk": "^0.13.0",
-  "@orca-so/common-sdk": "^0.6.0"
+  "@orca-so/common-sdk": "^0.6.0",
+  "tweetnacl": "^1.0.3",
+  "ed2curve": "^0.3.0"
 }
 ```
 
@@ -350,6 +356,115 @@ MIT
 - [ ] Test with small amounts first
 - [ ] Implement proper error handling
 - [ ] Set up monitoring/alerts
+
+## CID Revelation & NFT Access Control
+
+The protocol includes a sophisticated system for securely distributing collection CIDs and controlling content access.
+
+### Overview
+
+1. **Purchase Flow**: Buyer creates an AccessEscrow with a hash of the collection CID
+2. **CID Revelation**: A pinner encrypts the actual CID and sends it on-chain
+3. **Verification**: Buyer decrypts and verifies the hash matches
+4. **Access Control**: Non-transferable NFT proves access rights to pinners
+
+### AccessClient (for Purchasers)
+
+```typescript
+import { AccessClient, hashCID } from "@capturegem/client-library";
+
+const accessClient = new AccessClient(program, connection, provider);
+
+// Purchase access to a collection
+const collectionCID = "QmYx8VsXjVjR4NbZPrB7GyPx9qvL8TjKU2r3fNz4bHmWk9";
+const cidHash = hashCID(collectionCID);
+
+const result = await accessClient.purchaseAndRevealCID(
+  "creator-collection",
+  collectionPubkey,
+  new BN(1_000_000), // Amount
+  cidHash,
+  purchaserKeypair
+);
+
+console.log("CID:", result.revealed.cid);
+console.log("Verified:", result.revealed.verified);
+
+// Create NFT proof for streaming
+const nftProof = accessClient.createNFTAccessProof(
+  purchaserKeypair,
+  "creator-collection",
+  result.purchase.accessNftMint
+);
+
+// Use proof with pinner
+await fetch("https://pinner.example.com/verify", {
+  method: "POST",
+  body: JSON.stringify(nftProof),
+});
+```
+
+### PinnerClient (for Content Providers)
+
+```typescript
+import { PinnerClient } from "@capturegem/client-library";
+
+const pinnerClient = new PinnerClient(program, connection, provider);
+
+// Monitor for new purchases
+const subId = await pinnerClient.subscribeToNewPurchases(
+  async (purchase) => {
+    console.log("New purchase:", purchase.collectionId);
+    
+    // Reveal CID to purchaser
+    await pinnerClient.revealCID(
+      purchase.accessEscrow,
+      "QmYx8VsXjVjR4NbZPrB7GyPx9qvL8TjKU2r3fNz4bHmWk9",
+      pinnerKeypair
+    );
+  }
+);
+
+// Verify NFT ownership before serving content
+app.post("/verify-access", async (req, res) => {
+  const verification = await pinnerClient.verifyNFTOwnership(
+    req.body,
+    "creator-collection"
+  );
+  
+  if (!verification.valid) {
+    return res.status(403).json({ error: verification.reason });
+  }
+  
+  res.json({ allowed: true, gateway_url: "..." });
+});
+```
+
+### Key Features
+
+- **Encryption**: X25519-XSalsa20-Poly1305 (NaCl box)
+- **Hash Verification**: SHA-256 commitment before revelation
+- **NFT Standard**: Token-2022 with Non-Transferable extension
+- **Access Proofs**: Ed25519 signed messages with timestamp
+- **Caching**: Automatic NFT verification caching for performance
+
+### Examples
+
+Run the complete examples:
+
+```bash
+# Purchaser flow (buy, decrypt, verify)
+npm run example:purchaser
+
+# Pinner flow (monitor, reveal, verify)
+npm run example:pinner
+```
+
+### Documentation
+
+For detailed documentation, see:
+- [CID Revelation Guide](./CID-REVELATION-GUIDE.md)
+- [Quick Reference](./QUICK-REFERENCE.md)
 
 ## Support
 

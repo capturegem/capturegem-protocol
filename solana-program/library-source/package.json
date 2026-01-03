@@ -6,6 +6,8 @@
   "types": "index.ts",
   "scripts": {
     "example:orca": "ts-node examples/orca-workflow-example.ts",
+    "example:purchaser": "ts-node examples/purchaser-flow-example.ts",
+    "example:pinner": "ts-node examples/pinner-flow-example.ts",
     "build": "tsc",
     "lint": "eslint . --ext .ts",
     "test": "jest"
@@ -25,7 +27,9 @@
     "@solana/web3.js": "^1.91.0",
     "@solana/spl-token": "^0.4.0",
     "@orca-so/whirlpools-sdk": "^0.13.0",
-    "@orca-so/common-sdk": "^0.6.0"
+    "@orca-so/common-sdk": "^0.6.0",
+    "tweetnacl": "^1.0.3",
+    "ed2curve": "^0.3.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
