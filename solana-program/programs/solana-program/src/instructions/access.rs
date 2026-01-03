@@ -129,6 +129,34 @@ pub fn purchase_access(
         .ok_or(ProtocolError::MathOverflow)?;
 
     // ============================================================================
+    // CRITICAL: Calculate Transfer Fee deduction (1.5% = 150 basis points)
+    // Token-2022 will automatically deduct 1.5% on each transfer, so we must
+    // account for this in our state updates to prevent insolvency.
+    // ============================================================================
+    let fee_basis_points = 150u64; // 1.5% transfer fee (matches create_collection)
+    let fee_denominator = 10000u64;
+
+    // Calculate fees and net amounts for staking pool transfer
+    let staker_fee = amount_to_stakers
+        .checked_mul(fee_basis_points)
+        .ok_or(ProtocolError::MathOverflow)?
+        .checked_div(fee_denominator)
+        .ok_or(ProtocolError::MathOverflow)?;
+    let net_to_stakers = amount_to_stakers
+        .checked_sub(staker_fee)
+        .ok_or(ProtocolError::MathOverflow)?;
+
+    // Calculate fees and net amounts for escrow transfer
+    let escrow_fee = amount_to_escrow
+        .checked_mul(fee_basis_points)
+        .ok_or(ProtocolError::MathOverflow)?
+        .checked_div(fee_denominator)
+        .ok_or(ProtocolError::MathOverflow)?;
+    let net_to_escrow = amount_to_escrow
+        .checked_sub(escrow_fee)
+        .ok_or(ProtocolError::MathOverflow)?;
+
+    // ============================================================================
     // STEP 1: Mint Non-Transferable Access NFT
     // ============================================================================
     
@@ -193,7 +221,8 @@ pub fn purchase_access(
     access_escrow.collection = collection.key();
     access_escrow.access_nft_mint = nft_mint_key;
     access_escrow.cid_hash = cid_hash;
-    access_escrow.amount_locked = amount_to_escrow;
+    // CRITICAL: Store NET amount (after transfer fee) to match actual balance
+    access_escrow.amount_locked = net_to_escrow;
     access_escrow.created_at = clock.unix_timestamp;
     access_escrow.is_cid_revealed = false;
     access_escrow.bump = ctx.bumps.access_escrow;
@@ -212,8 +241,9 @@ pub fn purchase_access(
     anchor_spl::token_interface::transfer_checked(cpi_ctx_pool, amount_to_stakers, ctx.accounts.collection_mint.decimals)?;
 
     // Distribute rewards to stakers
+    // CRITICAL: Use NET amount (after transfer fee) to match actual tokens received
     if staking_pool.total_staked > 0 {
-        let reward_increment = (amount_to_stakers as u128)
+        let reward_increment = (net_to_stakers as u128)
             .checked_mul(REWARD_PRECISION)
             .ok_or(ProtocolError::MathOverflow)?
             .checked_div(staking_pool.total_staked as u128)
@@ -238,13 +268,17 @@ pub fn purchase_access(
     anchor_spl::token_interface::transfer_checked(cpi_ctx_escrow, amount_to_escrow, ctx.accounts.collection_mint.decimals)?;
 
     msg!(
-        "AccessPurchased: Purchaser={} Collection={} NFT={} Total={} ToStakers={} ToEscrow={} ExpiresAt={}",
+        "AccessPurchased: Purchaser={} Collection={} NFT={} Total={} GrossToStakers={} NetToStakers={} GrossToEscrow={} NetToEscrow={} StakerFee={} EscrowFee={} ExpiresAt={}",
         ctx.accounts.purchaser.key(),
         collection.collection_id,
         nft_mint_key,
         total_amount,
         amount_to_stakers,
+        net_to_stakers,
         amount_to_escrow,
+        net_to_escrow,
+        staker_fee,
+        escrow_fee,
         clock.unix_timestamp + ESCROW_EXPIRY_SECONDS
     );
 
@@ -423,6 +457,28 @@ pub fn release_escrow<'info>(
 
     let amount_locked = access_escrow.amount_locked;
     
+    // ============================================================================
+    // CRITICAL: Account for Transfer Fees on peer payments
+    // 
+    // The escrow balance (amount_locked) is the NET amount after the initial
+    // transfer fee. When we send tokens to peers, Token-2022 will deduct a 1.5%
+    // fee from the escrow for each transfer.
+    //
+    // IMPORTANT: The fee is deducted from the SOURCE (escrow), so if we send
+    // X tokens, the escrow balance decreases by X (gross), and the peer receives
+    // X - (X * 1.5%) = X * 0.985 (net).
+    //
+    // Since amount_locked is the net balance, we can only send up to amount_locked
+    // total. We distribute amount_locked proportionally to peers. Each peer will
+    // receive their share minus the 1.5% fee, but they remain proportional.
+    //
+    // Example: amount_locked = 49.25, 2 peers with equal weights
+    // - Peer 1 gets: 24.625 gross → receives 24.255625 net (fee: 0.369375)
+    // - Peer 2 gets: 24.625 gross → receives 24.255625 net (fee: 0.369375)
+    // - Total sent: 49.25 (matches amount_locked)
+    // - Total fees: 0.73875 (goes to treasury)
+    // ============================================================================
+    
     // Get all keys and data before the loop to avoid lifetime issues
     let escrow_token_account_key = *ctx.accounts.escrow_token_account.key;
     let token_program_key = *ctx.accounts.token_program.key;
@@ -455,12 +511,37 @@ pub fn release_escrow<'info>(
         ProtocolError::InvalidFeeConfig
     );
 
+    // Track total amount sent to ensure we don't exceed escrow balance
+    let mut total_sent = 0u64;
+    let fee_basis_points = 150u64; // 1.5% transfer fee
+    let fee_denominator = 10000u64;
+    
     for (i, peer_wallet) in peer_wallets.iter().enumerate() {
         let weight = peer_weights[i];
-        let peer_amount = amount_locked
+        // Calculate peer's proportional share of amount_locked (net balance)
+        let peer_share = amount_locked
             .checked_mul(weight)
             .ok_or(ProtocolError::MathOverflow)?
             .checked_div(total_weight)
+            .ok_or(ProtocolError::MathOverflow)?;
+        
+        // Verify we have enough balance remaining
+        let remaining_balance = amount_locked
+            .checked_sub(total_sent)
+            .ok_or(ProtocolError::MathOverflow)?;
+        
+        // Adjust for rounding - use remaining balance if peer_share would exceed it
+        let peer_amount = if peer_share > remaining_balance {
+            remaining_balance
+        } else {
+            peer_share
+        };
+        
+        // Calculate the net amount peer will receive (after 1.5% fee deduction)
+        let peer_net_received = peer_amount
+            .checked_mul(fee_denominator - fee_basis_points)
+            .ok_or(ProtocolError::MathOverflow)?
+            .checked_div(fee_denominator)
             .ok_or(ProtocolError::MathOverflow)?;
 
         if peer_amount > 0 {
@@ -553,10 +634,21 @@ pub fn release_escrow<'info>(
                 signer_seeds,
             )?;
 
+            // Update total sent (track gross amount, as that's what leaves the escrow)
+            total_sent = total_sent
+                .checked_add(peer_amount)
+                .ok_or(ProtocolError::MathOverflow)?;
+            
+            let peer_fee = peer_amount
+                .checked_sub(peer_net_received)
+                .ok_or(ProtocolError::MathOverflow)?;
+            
             msg!(
-                "PeerPayment: Peer={} Amount={} Weight={} TrustScore={}",
+                "PeerPayment: Peer={} GrossSent={} NetReceived={} Fee={} Weight={} TrustScore={}",
                 peer_wallet,
                 peer_amount,
+                peer_net_received,
+                peer_fee,
                 weight,
                 trust_score_update
             );

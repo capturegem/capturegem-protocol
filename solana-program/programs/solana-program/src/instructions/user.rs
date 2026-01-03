@@ -106,8 +106,8 @@ pub fn create_collection(
 
     // --- MANUAL MINT CREATION WITH TRANSFER FEE EXTENSION START ---
 
-    // 1. Define Transfer Fee Config (5% = 500 basis points)
-    let fee_basis_points = 500; // 5%
+    // 1. Define Transfer Fee Config (1.5% = 150 basis points)
+    let fee_basis_points = 150; // 1.5%
     let max_fee = u64::MAX;     // Cap on fees (optional, set to MAX for no cap)
     
     // 2. Calculate space required for Mint + TransferFeeConfig extension
@@ -181,7 +181,7 @@ pub fn create_collection(
     // --- MANUAL MINT CREATION WITH TRANSFER FEE EXTENSION END ---
 
     msg!(
-        "CollectionCreated: ID={} Owner={} CidHashSet=true Mint={} TransferFee=5%",
+        "CollectionCreated: ID={} Owner={} CidHashSet=true Mint={} TransferFee=1.5%",
         collection_id,
         owner_key,
         ctx.accounts.mint.key()
