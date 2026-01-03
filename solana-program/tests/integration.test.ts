@@ -369,17 +369,23 @@ describe("Integration Tests", () => {
       const [pinner1StatePDA] = getPinnerStatePDA(pinner.publicKey, collectionPDA);
       const [pinner2StatePDA] = getPinnerStatePDA(pinner2.publicKey, collectionPDA);
 
-      // Register first pinner
-      await program.methods
-        .registerCollectionHost()
-        .accounts({
-          pinner: pinner.publicKey,
-          collection: collectionPDA,
-          pinnerState: pinner1StatePDA,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([pinner])
-        .rpc();
+      // Register first pinner (check if already registered)
+      try {
+        await program.account.pinnerState.fetch(pinner1StatePDA);
+        // Already registered, skip
+      } catch {
+        // Not registered, proceed with registration
+        await program.methods
+          .registerCollectionHost()
+          .accounts({
+            pinner: pinner.publicKey,
+            collection: collectionPDA,
+            pinnerState: pinner1StatePDA,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([pinner])
+          .rpc();
+      }
 
       // Register second pinner
       await program.methods

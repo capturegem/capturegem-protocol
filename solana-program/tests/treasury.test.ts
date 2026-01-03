@@ -60,6 +60,33 @@ describe("Treasury - Fee Harvesting", () => {
     
     [performerEscrowPDA] = getPerformerEscrowPDA(collectionPDA);
     [globalStatePDA] = getGlobalStatePDA();
+    
+    // Initialize performer escrow if it doesn't exist
+    // Note: If the instruction doesn't exist in deployed program, test will fail with AccountNotInitialized
+    try {
+      await program.account.performerEscrow.fetch(performerEscrowPDA);
+    } catch {
+      // Not initialized, try to initialize it (may fail if instruction not in deployed program)
+      try {
+        const { SystemProgram } = await import("@solana/web3.js");
+        const { performer } = await import("./helpers/setup");
+        await program.methods
+          .initializePerformerEscrow(performer.publicKey)
+          .accounts({
+            authority: user.publicKey,
+            collection: collectionPDA,
+            performerEscrow: performerEscrowPDA,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+      } catch (initErr: any) {
+        // Instruction may not exist in deployed program - test will handle AccountNotInitialized
+        if (!initErr.toString().includes("InstructionFallbackNotFound")) {
+          throw initErr;
+        }
+      }
+    }
   });
 
   it("Successfully harvests fees and splits 50/20/20/10", async () => {

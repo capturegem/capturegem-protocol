@@ -83,6 +83,13 @@ pub mod solana_program {
         instructions::staking::slash_moderator(ctx)
     }
 
+    pub fn initialize_performer_escrow(
+        ctx: Context<InitializePerformerEscrow>,
+        performer_wallet: Pubkey,
+    ) -> Result<()> {
+        instructions::performer::initialize_performer_escrow(ctx, performer_wallet)
+    }
+
     pub fn claim_performer_escrow(
         ctx: Context<ClaimPerformerEscrow>,
     ) -> Result<()> {

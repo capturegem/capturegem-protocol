@@ -5,6 +5,43 @@ use crate::errors::ProtocolError;
 use crate::constants::*;
 
 #[derive(Accounts)]
+pub struct InitializePerformerEscrow<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"collection", collection.owner.as_ref(), collection.collection_id.as_bytes()],
+        bump
+    )]
+    pub collection: Account<'info, CollectionState>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = PerformerEscrow::MAX_SIZE,
+        seeds = [SEED_PERFORMER_ESCROW, collection.key().as_ref()],
+        bump
+    )]
+    pub performer_escrow: Account<'info, PerformerEscrow>,
+
+    pub system_program: Program<'info, System>,
+}
+
+pub fn initialize_performer_escrow(
+    ctx: Context<InitializePerformerEscrow>,
+    performer_wallet: Pubkey,
+) -> Result<()> {
+    let performer_escrow = &mut ctx.accounts.performer_escrow;
+    performer_escrow.collection = ctx.accounts.collection.key();
+    performer_escrow.performer_wallet = performer_wallet;
+    performer_escrow.balance = 0;
+    performer_escrow.bump = ctx.bumps.performer_escrow;
+
+    Ok(())
+}
+
+#[derive(Accounts)]
 pub struct ClaimPerformerEscrow<'info> {
     #[account(mut)]
     pub performer: Signer<'info>,
