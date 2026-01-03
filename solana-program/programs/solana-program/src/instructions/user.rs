@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface, MintTo};
+use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface, MintTo, Burn, burn};
 use anchor_spl::associated_token::AssociatedToken;
 use crate::state::*;
 use crate::errors::ProtocolError;
@@ -439,12 +439,20 @@ pub struct BurnUnclaimedTokens<'info> {
     )]
     pub collection: Account<'info, CollectionState>,
 
-    /// CHECK: Claim vault token account (PDA) holding the 10% reserve
+    /// Claim vault PDA (authority for the token account)
+    #[account(
+        seeds = [SEED_CLAIM_VAULT, collection.key().as_ref()],
+        bump
+    )]
+    pub claim_vault_pda: UncheckedAccount<'info>,
+
+    /// Claim vault token account (ATA owned by claim_vault PDA) holding the 10% reserve
     #[account(
         mut,
-        constraint = claim_vault.key() == collection.claim_vault @ ProtocolError::Unauthorized
+        constraint = claim_vault.key() == collection.claim_vault @ ProtocolError::Unauthorized,
+        constraint = claim_vault.mint == mint.key() @ ProtocolError::Unauthorized
     )]
-    pub claim_vault: UncheckedAccount<'info>,
+    pub claim_vault: InterfaceAccount<'info, TokenAccount>,
 
     /// CHECK: Collection token mint
     #[account(
@@ -471,19 +479,45 @@ pub fn burn_unclaimed_tokens(ctx: Context<BurnUnclaimedTokens>) -> Result<()> {
         ProtocolError::Unauthorized // Use Unauthorized as a generic error for "not yet available"
     );
 
-    // In production: 
-    // 1. Get the balance of the claim_vault token account
-    // 2. Use CPI to burn those tokens from the mint
-    // 3. This permanently reduces the total supply
+    // Get the balance of the claim_vault token account
+    let claim_vault_account = &ctx.accounts.claim_vault;
+    let amount_to_burn = claim_vault_account.amount;
+    
+    require!(
+        amount_to_burn > 0,
+        ProtocolError::InsufficientFunds
+    );
 
-    // For now, we just log the event
-    // TODO: Implement actual token burning via CPI to token program's burn instruction
+    // Derive the claim_vault PDA seeds for signing
+    // The claim_vault PDA owns the token account and must sign the burn
+    let collection_key = collection.key();
+    let claim_vault_seeds = &[
+        SEED_CLAIM_VAULT,
+        collection_key.as_ref(),
+        &[ctx.bumps.claim_vault_pda],
+    ];
+    let signer_seeds = &[&claim_vault_seeds[..]];
+
+    // Burn the tokens permanently (reduces collection token supply)
+    let burn_ix = Burn {
+        mint: ctx.accounts.mint.to_account_info(),
+        from: ctx.accounts.claim_vault.to_account_info(),
+        authority: ctx.accounts.claim_vault_pda.to_account_info(), // claim_vault PDA is the authority
+    };
+    
+    let cpi_ctx = CpiContext::new_with_signer(
+        ctx.accounts.token_program.to_account_info(),
+        burn_ix,
+        signer_seeds,
+    );
+    burn(cpi_ctx, amount_to_burn)?;
 
     msg!(
-        "UnclaimedTokensBurned: Collection={} Deadline={} CurrentTime={}",
+        "UnclaimedTokensBurned: Collection={} Deadline={} CurrentTime={} AmountBurned={}",
         collection.collection_id,
         collection.claim_deadline,
-        clock.unix_timestamp
+        clock.unix_timestamp,
+        amount_to_burn
     );
 
     Ok(())
