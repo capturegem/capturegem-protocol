@@ -195,11 +195,7 @@ Before diving into the on-chain program design, it's critical to understand the 
 
 #### 3.0.1 Manifest Purpose & Architecture
 
-The Collection Manifest is a JSON document that contains:
-- Complete metadata for every video in the collection
-- Creator/performer information
-- Technical specifications (resolution, VR support, duration)
-- Timestamps, tags, and content warnings
+The Collection Manifest is a JSON document stored on IPFS. It acts as a directory, containing metadata for the creator and a list of video objects. Crucially, this document is what the user purchases access to. See Appendix B for the full JSON schema.
 
 **Privacy Model:**
 1. Creator uploads manifest to IPFS → receives CID (e.g., `QmXYZ...`)
@@ -215,132 +211,26 @@ The Collection Manifest is a JSON document that contains:
 - Manifest hash acts as a commitment—pinners cannot swap content after minting
 - Buyers verify `SHA256(revealed_CID) == on_chain_hash` before accepting
 
-#### 3.0.2 Manifest Schema (v1.0)
+#### 3.0.2 Schema Overview
 
-**Top-Level Structure:**
-```json
-{
-  "schema_version": 1,
-  "collection_id": "creator-collection-2024",
-  "name": "Summer Collection 2024",
-  "description": "Exclusive summer content from @creator",
-  "creator": {
-    "username": "creator_username",
-    "display_name": "Creator Name",
-    "wallet_address": "5xKb...",
-    "bio": "Professional content creator...",
-    "avatar_cid": "QmAvatar...",
-    "social_links": {
-      "twitter": "https://twitter.com/...",
-      "website": "https://..."
-    },
-    "verified": true
-  },
-  "created_at": "2024-06-01T00:00:00Z",
-  "updated_at": "2024-06-15T10:30:00Z",
-  "total_videos": 12,
-  "total_duration_seconds": 7200,
-  "content_rating": "explicit",
-  "tags": ["summer", "outdoor", "4k"],
-  "cover_image_cid": "QmCover...",
-  "preview_cid": "QmPreview...",
-  "videos": [ /* array of video objects */ ]
-}
-```
+The manifest schema (v1.0) includes:
 
-**Video Object Structure:**
-```json
-{
-  "video_id": "vid001",
-  "title": "Summer Beach Day",
-  "description": "A beautiful day at the beach...",
-  "cid": "QmVideoContent...",
-  "duration_seconds": 600,
-  "recorded_at": "2024-06-05T14:30:00Z",
-  "uploaded_at": "2024-06-06T09:00:00Z",
-  "performer_username": "creator_username",
-  "additional_performers": ["guest_performer"],
-  "technical_specs": {
-    "resolution": "3840x2160",
-    "fps": 60,
-    "codec": "h265",
-    "bitrate_kbps": 15000,
-    "is_vr": false,
-    "audio_codec": "aac",
-    "audio_bitrate_kbps": 256,
-    "hdr": true
-  },
-  "thumbnail_cid": "QmThumb001...",
-  "preview_clip_cid": "QmPreviewClip001...",
-  "tags": ["beach", "outdoor", "daytime"],
-  "content_warnings": [],
-  "file_size_bytes": 1200000000,
-  "file_format": "mp4"
-}
-```
+**Collection-Level Fields:**
+- Protocol version, collection identifier, and metadata
+- Creator information (username, wallet address, social links)
+- Content rating, tags, and timestamps
+- Summary statistics (total videos, total duration)
 
-**VR Video Example:**
-```json
-{
-  "video_id": "vr_vid001",
-  "title": "VR Experience: Sunset",
-  "cid": "QmVRVideo...",
-  "duration_seconds": 900,
-  "recorded_at": "2024-06-10T19:00:00Z",
-  "performer_username": "creator_username",
-  "technical_specs": {
-    "resolution": "7680x4320",
-    "fps": 60,
-    "codec": "h265",
-    "bitrate_kbps": 40000,
-    "is_vr": true,
-    "vr_format": "equirectangular",
-    "vr_stereo_mode": "side-by-side",
-    "audio_codec": "aac",
-    "audio_bitrate_kbps": 320
-  },
-  "tags": ["vr", "180", "sunset"]
-}
-```
+**Video-Level Fields:**
+- Video identifiers, titles, and IPFS CIDs
+- Performer information and recording timestamps
+- Technical specifications (resolution, codec, bitrate, frame rate)
+- VR-specific fields when applicable (format, stereo mode)
+- Thumbnails, preview clips, and content warnings
 
-#### 3.0.3 Schema Fields Reference
+For complete field definitions, type specifications, and example JSON structures, see Appendix B: Data Schemas.
 
-**Required Fields (Collection Level):**
-- `schema_version` (number): Protocol version for forward compatibility (current: 1)
-- `collection_id` (string): Matches on-chain CollectionState identifier
-- `name` (string): Human-readable collection name
-- `creator` (object): Creator/performer metadata
-  - `username` (string): Stage name/handle
-- `created_at` (ISO 8601 string): Manifest creation timestamp
-- `total_videos` (number): Count of videos in collection
-- `total_duration_seconds` (number): Sum of all video durations
-- `content_rating` (string): "explicit" | "mature" | "general"
-- `videos` (array): Array of video metadata objects
-
-**Required Fields (Video Level):**
-- `video_id` (string): Unique identifier within collection
-- `title` (string): Video title
-- `cid` (string): IPFS CID of video file
-- `duration_seconds` (number): Video length in seconds
-- `recorded_at` (ISO 8601 string): Recording timestamp
-- `performer_username` (string): Primary performer stage name
-- `technical_specs` (object): Technical specifications
-  - `resolution` (string): Video dimensions (e.g., "1920x1080", "3840x2160")
-  - `is_vr` (boolean): Whether this is a VR/360 video
-
-**VR-Specific Fields (when is_vr = true):**
-- `vr_format` (string): "equirectangular" | "cubemap" | "dome" | "fisheye"
-- `vr_stereo_mode` (string): "mono" | "side-by-side" | "top-bottom" | "anaglyph"
-
-**Optional but Recommended:**
-- `fps` (number): Frame rate (30, 60, 120)
-- `codec` (string): Video codec ("h264", "h265", "vp9")
-- `bitrate_kbps` (number): Video bitrate
-- `thumbnail_cid` (string): IPFS CID of thumbnail image
-- `tags` (array): Content tags for search/discovery
-- `file_size_bytes` (number): File size for bandwidth estimation
-
-#### 3.0.4 Client Library Usage
+#### 3.0.3 Client Library Usage
 
 The TypeScript client library provides builders for creating manifests:
 
@@ -401,7 +291,7 @@ console.log("Manifest CID (keep secret):", cid.toString());
 // Verify: SHA256(cid) should match the hash
 ```
 
-#### 3.0.5 Manifest Validation
+#### 3.0.4 Manifest Validation
 
 The client library includes validation to ensure manifests are well-formed:
 
@@ -428,7 +318,7 @@ if (!validation.valid) {
 - Timestamps are valid ISO 8601 format
 - CIDs are valid IPFS CIDs (basic format check)
 
-#### 3.0.6 Forward Compatibility
+#### 3.0.5 Forward Compatibility
 
 The `schema_version` field enables protocol evolution:
 - Current version: 1
@@ -487,86 +377,109 @@ If a collection needs schema updates (e.g., adding new videos), the creator:
 
 Stores protocol-wide configuration and parameters that govern the entire system, including fee settings, treasury address, and moderator requirements.
 
-```rust
-struct GlobalState {
-    admin: Pubkey,                    // Protocol administrator
-    treasury: Pubkey,                 // Treasury account that receives protocol fees
-    indexer_api_url: String,          // URL for the off-chain indexer API
-    node_registry_url: String,        // URL for the node registry
-    moderator_stake_minimum: u64,     // Minimum CAPGM stake required to be a moderator
-    capgm_mint: Pubkey,               // The CAPGM ecosystem token mint
-    fee_basis_points: u16,            // Purchase fee in basis points (default: 200 = 2%)
-    updates_disabled: bool,           // One-way lock to prevent future updates
-    bump: u8,
-}
-```
+| Field | Description |
+| :--- | :--- |
+| `admin` | Protocol administrator wallet address with authority to update global settings. |
+| `treasury` | Treasury account that receives protocol fees from all purchases. |
+| `indexer_api_url` | URL for the off-chain indexer API that provides real-time pricing and trusted peer lists. |
+| `node_registry_url` | URL for the node registry service that tracks active IPFS peers. |
+| `moderator_stake_minimum` | Minimum CAPGM stake (in lamports) required to participate as a moderator in dispute resolution. |
+| `capgm_mint` | The CAPGM ecosystem token mint address, used as the quote currency in all liquidity pools. |
+| `fee_basis_points` | Purchase fee in basis points (default: 200 = 2%). Configurable by admin, cannot exceed 10,000 (100%). |
+| `updates_disabled` | One-way lock flag to permanently disable future protocol updates for security. |
+| `bump` | PDA bump seed for account derivation. |
 
 **B. Collection State**
 
 Stores the immutable metadata, pool references, and claim timers required for protocol operation. Notably, the collection stores only the SHA-256 hash of the IPFS CID—not the CID itself—ensuring content addresses remain private and can only be revealed by authorized pinners to verified purchasers.
 
-```rust
-struct CollectionState {
-    owner: Pubkey,               // The original creator
-    collection_id: String,       // Unique slug (e.g., "cooking-101")
-    cid_hash: [u8; 32],          // SHA-256 hash of the collection IPFS CID (not the CID itself)
-    mint: Pubkey,                // The Collection Token Mint address
-    pool_address: Pubkey,        // The specific Orca Whirlpool/Pool Address
-    claim_vault: Pubkey,         // PDA holding the 10% reserve
-    claim_deadline: i64,         // Timestamp (Now + 6 months)
-    total_trust_score: u64,      // Aggregate reliability of this collection's swarm
-    is_blacklisted: bool,        // Moderator toggle for illegal content
-    bump: u8,
-}
-```
+| Field | Description |
+| :--- | :--- |
+| `owner` | The original creator's wallet address who minted the collection. |
+| `collection_id` | Unique slug identifier for the collection (e.g., "cooking-101"). |
+| `cid_hash` | SHA-256 hash (32 bytes) of the collection IPFS manifest CID. The actual CID is never stored on-chain, only this commitment hash. |
+| `mint` | The Collection Token mint address (Token-2022 standard). |
+| `pool_address` | The specific Orca Whirlpool/Pool address where collection tokens are traded against CAPGM. |
+| `claim_vault` | PDA address holding the 10% token reserve for potential copyright claims. |
+| `claim_deadline` | Unix timestamp (i64) marking the expiration of the claim window (mint time + 6 months). After this, tokens can be burned. |
+| `total_trust_score` | Aggregate reliability score of all peers hosting this collection's content, used for discovery prioritization. |
+| `is_blacklisted` | Moderator-controlled flag that marks collections containing illegal or TOS-violating content. |
+| `bump` | PDA bump seed for account derivation. |
 
 **C. Access Escrow**
 
 A temporary holding account created when a user purchases access but hasn't finished downloading. This is the core component of the "Trust-Based" payment model. The escrow has a 24-hour expiration window, after which unclaimed funds are burned. Critically, the escrow stores only the SHA-256 hash of the collection CID—never the CID itself—ensuring that content addresses remain private until revealed by an authorized pinner. Additionally, the escrow links to the Access NFT that serves as the cryptographic proof of purchase.
 
-```rust
-struct AccessEscrow {
-    purchaser: Pubkey,           // The user buying content (only they can release funds)
-    collection: Pubkey,          // The content being bought
-    access_nft_mint: Pubkey,     // The NFT mint address proving access rights
-    cid_hash: [u8; 32],          // SHA-256 hash of the collection CID (for verification)
-    amount_locked: u64,          // Tokens bought from the pool (50% of purchase), waiting for release
-    created_at: i64,             // Timestamp for 24-hour burn timeout logic
-    is_cid_revealed: bool,       // Whether a pinner has revealed the CID
-    bump: u8,
-}
-```
+| Field | Description |
+| :--- | :--- |
+| `purchaser` | The wallet address of the user buying content. Only this wallet can release escrow funds to peers. |
+| `collection` | The CollectionState PDA address for the content being purchased. |
+| `access_nft_mint` | The Access NFT mint address (Token-2022 Non-Transferable) that serves as cryptographic proof of purchase. |
+| `cid_hash` | SHA-256 hash (32 bytes) of the collection manifest CID, used to verify authenticity when pinners reveal the actual CID. |
+| `amount_locked` | Collection tokens (in lamports) locked in escrow, representing 50% of the purchase price. These are distributed to peers upon successful content delivery. |
+| `created_at` | Unix timestamp (i64) when the escrow was created, used to enforce the 24-hour expiration window. |
+| `is_cid_revealed` | Boolean flag indicating whether a pinner has submitted a CidReveal account containing the encrypted CID. |
+| `bump` | PDA bump seed for account derivation. |
 
 **C.1 CID Reveal**
 
 Stores the encrypted CID message sent by a pinner to the purchaser. Only the purchaser can decrypt this message using their wallet's private key.
 
-```rust
-struct CidReveal {
-    escrow: Pubkey,              // The AccessEscrow this reveal is for
-    pinner: Pubkey,              // The peer who revealed the CID (must be a registered pinner)
-    encrypted_cid: Vec<u8>,      // CID encrypted with purchaser's public key (X25519/ECIES)
-    revealed_at: i64,            // Timestamp of reveal
-    bump: u8,
-}
-```
+| Field | Description |
+| :--- | :--- |
+| `escrow` | The AccessEscrow PDA address this reveal is associated with. |
+| `pinner` | The wallet address of the IPFS peer who revealed the CID. Must be a registered pinner for the collection. |
+| `encrypted_cid` | The collection manifest CID encrypted with the purchaser's public key using X25519-XSalsa20-Poly1305 (NaCl/libsodium box). Only the purchaser's private key can decrypt this. |
+| `revealed_at` | Unix timestamp (i64) when the pinner submitted the encrypted CID reveal. |
+| `bump` | PDA bump seed for account derivation. |
 
 **D. Peer Trust State**
 
 Tracks the historical reliability of a specific node (Peer). This is a persistent on-chain reputation identity.
 
-```rust
-struct PeerTrustState {
-    peer_wallet: Pubkey,
-    total_successful_serves: u64, // Total number of released escrows
-    trust_score: u64,             // Weighted score (Serves * Consistency)
-    last_active: i64,             // For pruning inactive nodes
-}
-```
+| Field | Description |
+| :--- | :--- |
+| `peer_wallet` | The wallet address of the IPFS peer node. This serves as the unique identifier for the peer's reputation. |
+| `total_successful_serves` | Total number of escrow releases where this peer received payment, indicating successful content delivery. |
+| `trust_score` | Weighted reputation score calculated from successful serves and consistency metrics. Higher scores indicate more reliable peers. |
+| `last_active` | Unix timestamp (i64) of the peer's last successful payment receipt. Used for pruning inactive nodes from trusted peer lists. |
 
 ### 3.3 Encrypted CID Revelation Scheme
 
 The protocol employs a cryptographic handshake to securely reveal content addresses only to verified purchasers while keeping CIDs private from the public blockchain.
+
+**Sequence Diagram: CID Revelation Handshake**
+
+```mermaid
+sequenceDiagram
+    participant Purchaser
+    participant Blockchain
+    participant Pinner
+    participant IPFS
+
+    Note over Purchaser,Blockchain: Purchase Phase
+    Purchaser->>Blockchain: Purchase Access<br/>(Commit: SHA256(CID))
+    Blockchain->>Blockchain: Create AccessEscrow<br/>(stores cid_hash, purchaser_pubkey)
+    Blockchain->>Purchaser: Mint Access NFT
+
+    Note over Pinner,Blockchain: CID Revelation Phase
+    Pinner->>Blockchain: Monitor for new AccessEscrow
+    Pinner->>Blockchain: Read purchaser_pubkey from escrow
+    Pinner->>Pinner: Encrypt CID with purchaser's public key<br/>(X25519-XSalsa20-Poly1305)
+    Pinner->>Blockchain: Create CidReveal account<br/>(encrypted_cid, signed by pinner)
+    
+    Note over Purchaser: Verification Phase
+    Purchaser->>Blockchain: Read CidReveal account
+    Purchaser->>Purchaser: Decrypt CID using private key
+    Purchaser->>Purchaser: Compute SHA256(decrypted_CID)
+    Purchaser->>Blockchain: Read cid_hash from AccessEscrow
+    alt Hash matches
+        Purchaser->>IPFS: Fetch manifest using revealed CID
+        IPFS->>Purchaser: Return collection manifest
+    else Hash mismatch
+        Purchaser->>Purchaser: Reject reveal, wait for another pinner
+    end
+```
 
 **Cryptographic Primitives:**
 
@@ -607,27 +520,45 @@ When a user purchases access via the `purchase_access` instruction:
 
 Before serving any content block via IPFS Bitswap, pinners perform on-chain verification:
 
-```
-HANDSHAKE PROTOCOL:
-1. Purchaser initiates IPFS connection to pinner's peer ID
-2. Purchaser sends signed message: {wallet_address, collection_id, nft_mint_address, timestamp, signature}
-3. Pinner verifies:
-   a. Signature is valid for the claimed wallet_address
-   b. NFT mint exists at nft_mint_address
-   c. NFT is owned by wallet_address (via on-chain query)
-   d. NFT metadata.collection matches the requested collection_id
-   e. Timestamp is recent (< 5 minutes, prevents replay attacks)
-4. If all checks pass → serve content
-5. If any check fails → reject connection and log unauthorized attempt
+**Sequence Diagram: NFT-Based Access Verification**
+
+```mermaid
+sequenceDiagram
+    participant Purchaser
+    participant IPFS
+    participant Pinner
+    participant Blockchain
+
+    Note over Purchaser,IPFS: Connection Handshake
+    Purchaser->>IPFS: Initiate connection to pinner's peer ID
+    Purchaser->>Pinner: Send signed access proof<br/>(wallet, collection_id, nft_mint, timestamp)
+    
+    Note over Pinner,Blockchain: Verification Phase
+    Pinner->>Pinner: Verify signature matches wallet address
+    Pinner->>Blockchain: Query NFT ownership<br/>(Does wallet hold Access NFT?)
+    Blockchain-->>Pinner: NFT ownership status
+    Pinner->>Blockchain: Verify NFT metadata<br/>(Does collection_id match?)
+    Blockchain-->>Pinner: Metadata verification result
+    Pinner->>Pinner: Check timestamp freshness<br/>(< 5 minutes old?)
+    
+    alt All checks pass
+        Pinner->>Pinner: Add purchaser to allowlist
+        Pinner->>IPFS: Serve content blocks via Bitswap
+        IPFS->>Purchaser: Deliver content
+    else Any check fails
+        Pinner->>Pinner: Log unauthorized attempt
+        Pinner->>IPFS: Reject connection
+        IPFS-->>Purchaser: Connection rejected
+    end
 ```
 
 **C. On-Chain NFT Verification**
 
 Pinners query the Solana blockchain to verify NFT ownership:
-- **RPC Call**: `getTokenAccountsByOwner` filtered by NFT mint address
-- **Validation**: Ensure the purchaser's wallet holds exactly 1 token of the NFT mint
-- **Caching**: Verification results can be cached for ~30 seconds to reduce RPC load
-- **Fallback**: If RPC fails, pinners can accept connections but flag them for manual review
+- **Ownership Query**: Pinners query the blockchain to check if the purchaser's wallet holds the Access NFT for the specified mint address
+- **Validation**: The pinner ensures the purchaser's wallet holds exactly 1 token of the NFT mint
+- **Caching**: Verification results can be cached for approximately 30 seconds to reduce blockchain query load
+- **Fallback**: If the blockchain query fails, pinners can accept connections but flag them for manual review
 
 **D. Security Properties**
 
@@ -673,35 +604,31 @@ The use of Token-2022's Non-Transferable extension provides critical security an
 
 Manages the staking of collection tokens and distribution of rewards to stakers when access is purchased.
 
-```rust
-struct CollectionStakingPool {
-    collection: Pubkey,           // The collection this pool is for
-    total_staked: u64,            // Total collection tokens staked in this pool
-    reward_per_token: u128,       // Accumulated rewards per token (scaled)
-    bump: u8,
-}
-```
+| Field | Description |
+| :--- | :--- |
+| `collection` | The CollectionState PDA address this staking pool is associated with. |
+| `total_staked` | Total amount of collection tokens (in lamports) currently staked by all users in this pool. |
+| `reward_per_token` | Accumulated rewards per token (u128, scaled for precision) used to calculate individual staker rewards proportionally. |
+| `bump` | PDA bump seed for account derivation. |
 
 **E. Staker Position**
 
 Tracks an individual user's stake in a collection staking pool and their earned rewards.
 
-```rust
-struct StakerPosition {
-    staker: Pubkey,               // The user who staked
-    collection: Pubkey,           // The collection being staked
-    amount_staked: u64,           // Number of collection tokens staked
-    reward_debt: u128,            // Used to calculate pending rewards
-    bump: u8,
-}
-```
+| Field | Description |
+| :--- | :--- |
+| `staker` | The wallet address of the user who staked collection tokens. |
+| `collection` | The CollectionState PDA address for the collection being staked. |
+| `amount_staked` | Number of collection tokens (in lamports) currently staked by this user. |
+| `reward_debt` | Internal accounting value (u128, scaled) used to calculate pending rewards. Ensures stakers only receive rewards from purchases made after their stake was deposited. |
+| `bump` | PDA bump seed for account derivation. |
 
 ## 4. Workflows
 
 ### 4.1 Collection Creation & Minting
 
 - **Content Preparation:** Creator uploads all video files to IPFS and receives CIDs for each video.
-- **Manifest Creation:** Using the `CollectionManifestBuilder`, creator constructs a complete catalog with:
+- **Manifest Creation:** The creator constructs a complete catalog manifest with:
   - Video CIDs, titles, descriptions
   - Recording timestamps
   - Performer usernames
@@ -709,9 +636,9 @@ struct StakerPosition {
   - Thumbnails and preview clips
 - **Manifest Upload:** Creator uploads the manifest JSON to IPFS → receives manifest CID
 - **CID Hashing:** Creator computes SHA-256 hash of the manifest CID (this hash will be stored on-chain)
-- **Initialization:** User calls `create_collection`, providing:
-  - The `collection_id` (unique slug).
-  - The SHA-256 hash of the collection's IPFS manifest CID (`cid_hash`). The actual CID is never stored on-chain.
+- **Initialization:** The creator submits a transaction to initialize the collection on-chain, providing:
+  - A unique collection identifier (slug).
+  - The SHA-256 hash of the collection's IPFS manifest CID. The actual CID is never stored on-chain.
   - The creator must be actively pinning the manifest and all video content on IPFS.
 - **CID Hash Commitment:** The `cid_hash` is stored in the `CollectionState` PDA. This hash is publicly visible and used by purchasers to verify that pinners reveal the correct manifest CID. The actual content address remains private, known only to the creator and authorized pinners.
 - **Mint & Distribute:**
@@ -724,7 +651,23 @@ struct StakerPosition {
 
 Unlike traditional models where payment goes directly to a creator, CaptureGem directs payment liquidity to the market (supporting the token price) and then splits it between collection token holders and infrastructure providers (Peers).
 
-**Payment Distribution:** When a user purchases access to a collection, the payment is processed as follows:
+**Payment Distribution Flow:**
+
+```mermaid
+flowchart TD
+    A[User Purchases Access<br/>100 Collection Tokens] --> B[Protocol Fee: 2%<br/>2 tokens → Treasury]
+    B --> C[Remaining: 98 tokens]
+    C --> D[50% Split]
+    D --> E[49 tokens → Staking Pool<br/>Rewards collection token holders]
+    D --> F[49 tokens → Access Escrow<br/>Locked for peer payment]
+    F --> G{Within 24 hours?}
+    G -->|Yes| H[Purchaser releases escrow<br/>to peers based on delivery]
+    G -->|No| I[Escrow expires<br/>Tokens burned]
+    H --> J[Peers receive payment<br/>Trust scores updated]
+```
+
+**Payment Distribution Details:**
+
 - **Protocol Fee (2% default):** First, a configurable protocol fee (default 2%, or 200 basis points) is deducted from the purchase amount and sent to the protocol treasury. This fee is set via `GlobalState.fee_basis_points` and can be updated by the protocol admin.
 - **Remaining Amount Split (50/50):** After the fee deduction, the remaining amount is split equally:
   - **50% → Collection Ownership Pool:** This portion flows to a staking pool where collection token holders can stake their tokens to earn rewards. This creates a direct incentive for token holders to support and promote their collections.
@@ -746,19 +689,13 @@ Unlike traditional models where payment goes directly to a creator, CaptureGem d
      - Access rights are permanently bound to the purchaser's wallet.
      - No secondary markets can form for access rights.
      - Stolen/compromised wallets cannot transfer access to attackers.
-  4. Metadata is attached via Metaplex Token Metadata program:
-     - `name`: "Access Pass: {collection_name}"
-     - `symbol`: "ACCESS"
-     - `uri`: Points to off-chain metadata (collection thumbnail, description)
-     - `collection`: References the collection ID
-     - `purchaser`: Original purchaser wallet address
-     - `purchased_at`: Unix timestamp
+  4. Metadata is attached to the NFT, including the collection name, a reference to the collection ID, the purchaser's wallet address, and the purchase timestamp. This metadata is stored off-chain and referenced via a URI.
   5. The NFT mint address is stored in the `AccessEscrow.access_nft_mint` field.
   6. The protocol retains **freeze authority** on the mint to enable moderation (revoking access by freezing the token account).
   7. This NFT becomes the purchaser's cryptographic proof of access rights.
-- **Pinner CID Reveal:** One of the pinners who is actively hosting the collection observes the new `AccessEscrow` on-chain. The pinner:
+- **Pinner CID Reveal:** One of the pinners who is actively hosting the collection observes the new escrow account on-chain. The pinner:
   1. Encrypts the collection CID using the purchaser's wallet public key (X25519-XSalsa20-Poly1305 / ECIES).
-  2. Submits a `reveal_cid` transaction that creates a `CidReveal` account containing the encrypted CID bytes.
+  2. Submits a transaction that creates an on-chain account containing the encrypted CID bytes, linked to the escrow.
   3. Only the purchaser can decrypt this message using their wallet's private key.
 - **Purchaser CID Verification:** Upon receiving the `CidReveal` event, the purchaser's client:
   1. Decrypts the encrypted CID using their wallet's private key.
@@ -766,24 +703,8 @@ Unlike traditional models where payment goes directly to a creator, CaptureGem d
   3. Compares this hash against the `cid_hash` stored in their `AccessEscrow` account.
   4. **If the hashes match:** The CID is authentic, and the client proceeds to download content.
   5. **If the hashes do not match:** The reveal is rejected as fraudulent, and the client waits for another pinner to provide a valid reveal.
-- **Collection Manifest Structure:** The revealed CID points to a **Collection Manifest Document**—a JSON or CBOR file stored on IPFS that contains the CIDs of all individual videos in the collection. This two-tier structure allows a single purchase to unlock multiple pieces of content:
-  ```json
-  {
-    "collection_id": "cooking-101",
-    "version": 1,
-    "videos": [
-      { "title": "Episode 1", "cid": "Qm...video1", "duration": 1800 },
-      { "title": "Episode 2", "cid": "Qm...video2", "duration": 2100 },
-      { "title": "Episode 3", "cid": "Qm...video3", "duration": 1650 }
-    ]
-  }
-  ```
-- **NFT Verification at Peer Connection:** Before connecting to IPFS peers to download content, the purchaser's client:
-  1. Signs a handshake message containing their wallet address, collection ID, NFT mint address, and current timestamp.
-  2. Presents this signed message to each pinner during the IPFS connection handshake.
-  3. Pinners verify the signature and check on-chain that the wallet owns the Access NFT.
-  4. Only pinners that accept the NFT proof will serve content blocks via Bitswap.
-  5. This prevents unauthorized users (who don't own the NFT) from accessing content even if they somehow obtain the CID.
+- **Collection Manifest Structure:** The revealed CID points to a **Collection Manifest Document**—a structured file stored on IPFS that contains the CIDs of all individual videos in the collection, along with their metadata (titles, durations, etc.). This two-tier structure allows a single purchase to unlock multiple pieces of content.
+- **NFT Verification at Peer Connection:** Before connecting to IPFS peers to download content, the purchaser's client creates a signed handshake message containing their wallet address, collection identifier, Access NFT reference, and current timestamp. This signed message is presented to each pinner during the IPFS connection handshake. Pinners verify the signature and check on-chain that the wallet owns the Access NFT. Only pinners that accept the NFT proof will serve content blocks via Bitswap. This prevents unauthorized users (who don't own the NFT) from accessing content even if they somehow obtain the CID.
 - **Content Download:** With the verified collection CID and accepted NFT proof, the client fetches the manifest and then begins requesting the individual video CIDs from the IPFS swarm.
 
 **Collection Token Staking:**
@@ -801,14 +722,14 @@ This workflow enforces the "Trust-Based" system where payment is conditional on 
 
 Pinners (IPFS peers) are paid exclusively through the escrow release mechanism. There is no separate reward claiming system for pinners. Payment works as follows:
 
-- **Registration:** Pinners register as hosts for a collection via `register_collection_host`, which creates a `PinnerState` account to track their active status.
-- **Payment Source:** Pinners receive payment only when purchasers release escrow funds via the `release_escrow` instruction. The 50% of purchase price locked in escrow is distributed to peers based on actual content delivery performance.
+- **Registration:** Pinners register as hosts for a collection by submitting a transaction that creates an on-chain account to track their active status.
+- **Payment Source:** Pinners receive payment only when purchasers release escrow funds. The 50% of purchase price locked in escrow is distributed to peers based on actual content delivery performance.
 - **No Separate Rewards:** Pinners do not accumulate rewards in a separate pool or claim rewards independently. All payment is conditional on successful content delivery as determined by the purchaser.
 
 **Pinner Incentive to Reveal CID:**
 
-Pinners are incentivized to monitor the blockchain for new `AccessEscrow` accounts and promptly reveal the CID because:
-- Only peers who are included in the purchaser's final `release_escrow` transaction receive payment.
+Pinners are incentivized to monitor the blockchain for new escrow accounts and promptly reveal the CID because:
+- Only peers who are included in the purchaser's final escrow release transaction receive payment.
 - The pinner who reveals the CID establishes a relationship with the purchaser, increasing their chances of being selected for content delivery.
 - Pinners who consistently provide fast, valid CID reveals build on-chain reputation, attracting more purchase traffic.
 - If no pinner reveals the CID within 24 hours, the escrow burns and no one earns—creating urgency for pinners to act.
@@ -817,34 +738,20 @@ Pinners are incentivized to monitor the blockchain for new `AccessEscrow` accoun
 
 Before serving any content, pinners enforce strict access control at the peer-to-peer layer:
 
-1. **Connection Handshake:** When a purchaser's IPFS node connects to a pinner's node, the purchaser must present a signed access proof message.
+1. **Connection Handshake:** When a purchaser's IPFS node connects to a pinner's node, the purchaser must present a signed access proof message containing their wallet address, collection identifier, Access NFT reference, and a current timestamp.
 
-2. **Proof Message Structure:**
-   ```json
-   {
-     "wallet_address": "5xKbW...",
-     "collection_id": "cooking-101",
-     "access_nft_mint": "8yFmZ...",
-     "timestamp": 1704326400,
-     "signature": "3vGtY..."  // Ed25519 signature by wallet's private key
-   }
-   ```
-
-3. **Pinner Verification Steps:**
-   - **Signature Validation:** Verify the signature matches the claimed wallet_address.
-   - **NFT Ownership Check:** Query Solana RPC to confirm the wallet owns the Access NFT:
-     ```
-     getTokenAccountsByOwner(wallet_address, {mint: access_nft_mint})
-     ```
-   - **NFT Metadata Verification:** Ensure the NFT's metadata.collection matches the requested collection_id.
-   - **Timestamp Freshness:** Reject proofs older than 5 minutes (prevents replay attacks).
-   - **Escrow Validation (Optional):** Cross-check that an `AccessEscrow` exists/existed for this purchaser+collection pair.
+2. **Pinner Verification Steps:**
+   - **Signature Validation:** The pinner verifies the signature matches the claimed wallet address.
+   - **NFT Ownership Check:** The pinner verifies the user holds the Access NFT by querying the Solana blockchain. If the wallet does not hold the token, the connection is dropped.
+   - **NFT Metadata Verification:** The pinner ensures the NFT's metadata matches the requested collection identifier.
+   - **Timestamp Freshness:** The pinner rejects proofs older than 5 minutes to prevent replay attacks.
+   - **Escrow Validation (Optional):** The pinner may cross-check that an escrow account exists or existed for this purchaser and collection pair.
 
 4. **Access Decision:**
    - **If all checks pass:** Pinner adds the purchaser to an allowlist and serves content blocks via IPFS Bitswap.
    - **If any check fails:** Pinner rejects the connection, logs the unauthorized attempt, and does not serve content.
 
-5. **Caching & Performance:** To minimize RPC load, pinners cache NFT verification results for ~30 seconds. Subsequent block requests from the same wallet within this window are served without re-verification.
+3. **Caching & Performance:** To minimize blockchain query load, pinners cache NFT verification results for approximately 30 seconds. Subsequent block requests from the same wallet within this window are served without re-verification.
 
 **The Trust-Based Payment Model:**
 
@@ -859,8 +766,8 @@ The buyer is the ultimate arbiter of which peers deserve payment. This creates s
   - Peer ID Z connected but sent 0MB (Timed out or rejected NFT proof).
 - **Client Decision:** Upon download completion (or sufficient streaming buffer), the client algorithmically determines that Peer X and Peer Y are valid earners based on "Useful Bytes Delivered."
 - **Buyer-Controlled Settlement:**
-  - The purchaser's client constructs a `release_escrow` transaction containing the list of valid Peer Wallets [WalletX, WalletY] and their respective weights based on actual bytes delivered.
-  - The User signs this transaction (High-Risk Action), explicitly approving which peers earned the payment.
+  - The purchaser's client constructs a transaction to release escrow funds, containing the list of valid peer wallets and their respective payment weights based on actual bytes delivered.
+  - The user signs this transaction (High-Risk Action), explicitly approving which peers earned the payment.
 - **On-Chain Execution:**
   - The Solana Program validates the signature matches the `AccessEscrow` owner (the purchaser).
   - The tokens in escrow (50% of purchase) are split according to the provided weights and sent to Wallet X and Wallet Y.
@@ -871,7 +778,7 @@ The buyer is the ultimate arbiter of which peers deserve payment. This creates s
 To prevent escrow accounts from accumulating indefinitely and to ensure economic finality, the protocol includes an automatic burn mechanism:
 
 - **Escrow Expiration:** Each `AccessEscrow` account includes a `created_at` timestamp. If the purchaser does not release funds to peers within 24 hours, the escrow enters an expired state.
-- **Permissionless Burn:** After the 24-hour window, anyone can call the `burn_expired_escrow` instruction. This is a permissionless action that can be executed by any network participant (typically automated by indexers or bots).
+- **Permissionless Burn:** After the 24-hour window, anyone can submit a transaction to burn the expired escrow. This is a permissionless action that can be executed by any network participant (typically automated by indexers or bots).
 - **Token Destruction:** The tokens in the expired escrow are permanently burned, reducing the total supply of the collection token. This creates a deflationary event that benefits all remaining token holders.
 - **Economic Rationale:** This mechanism serves multiple purposes:
   - **Prevents Abandonment:** Ensures purchasers complete the payment cycle or forfeit the funds.
@@ -893,36 +800,30 @@ This workflow enables passive income for collection token holders through a stak
 
 **Staking Collection Tokens:**
 
-- **Initiate Stake:** A collection token holder calls the `stake_collection_tokens` instruction, specifying the collection and the amount of tokens they wish to stake.
-- **Transfer to Pool:** The tokens are transferred from the user's wallet to the Collection Staking Pool PDA.
-- **Position Creation:** A `StakerPosition` account is created (or updated) to track the user's stake and their share of future rewards.
-- **Reward Accounting:** The staker's `reward_debt` is initialized based on the current `reward_per_token` rate to ensure they only receive rewards from future purchases, not historical ones.
+- **Initiate Stake:** A collection token holder submits a transaction to stake tokens, specifying the collection and the amount of tokens they wish to stake.
+- **Transfer to Pool:** The tokens are transferred from the user's wallet to the Collection Staking Pool.
+- **Position Creation:** An on-chain account is created (or updated) to track the user's stake and their share of future rewards.
+- **Reward Accounting:** The staker's reward accounting is initialized based on the current reward rate to ensure they only receive rewards from future purchases, not historical ones.
 
 **Earning Rewards from Access Purchases:**
 
 - **Purchase Event:** When a user purchases access to a collection, 50% of the purchased tokens flow to the Collection Staking Pool.
-- **Reward Distribution:** These tokens are distributed proportionally to all stakers in the pool based on their stake percentage. The distribution is calculated using the `reward_per_token` mechanism:
-  ```
-  reward_per_token += (tokens_from_purchase * PRECISION) / total_staked
-  ```
+- **Reward Distribution:** These tokens are distributed proportionally to all stakers in the pool based on their stake percentage. The distribution is calculated using a reward-per-token mechanism that scales rewards based on the total amount staked.
 - **Accumulation:** Rewards accumulate automatically without requiring any action from stakers. They can be claimed at any time.
 
 **Claiming Rewards:**
 
-- **Initiate Claim:** A staker calls the `claim_staking_rewards` instruction.
-- **Calculation:** The program calculates pending rewards:
-  ```
-  pending_rewards = (staker.amount_staked * pool.reward_per_token) - staker.reward_debt
-  ```
+- **Initiate Claim:** A staker submits a transaction to claim their accumulated rewards.
+- **Calculation:** The program calculates pending rewards based on the staker's stake amount, the current reward rate, and their previous reward accounting to ensure they only receive new rewards.
 - **Transfer:** The calculated reward tokens are transferred from the Staking Pool to the staker's wallet.
-- **Update State:** The staker's `reward_debt` is updated to reflect the claim, preventing double-claiming.
+- **Update State:** The staker's reward accounting is updated to reflect the claim, preventing double-claiming.
 
 **Unstaking:**
 
-- **Initiate Unstake:** A staker calls the `unstake_collection_tokens` instruction.
+- **Initiate Unstake:** A staker submits a transaction to unstake their tokens.
 - **Claim Pending:** Any pending rewards are automatically claimed first.
 - **Token Return:** The staked collection tokens are transferred back to the staker's wallet.
-- **Position Cleanup:** If the staker fully unstakes, their `StakerPosition` account can be closed to recover rent.
+- **Position Cleanup:** If the staker fully unstakes, their staking position account can be closed to recover rent.
 
 **Economic Implications:**
 
@@ -935,26 +836,35 @@ This staking mechanism creates several powerful incentives:
 ### 4.5 Copyright Claims
 
 - **Dispute:** A third party realizes a collection violates their IP.
-- **Submission:** They submit a `PerformerClaim` ticket via the client, attaching off-chain proof (e.g., links to original verified social media).
+- **Submission:** They submit a copyright claim ticket via the client, attaching off-chain proof (e.g., links to original verified social media).
 - **Moderation:** Staked Moderators review the claim. They compare the timestamp of the blockchain record against the provided evidence.
 - **Resolution:**
   - **If Approved:** The 10% tokens sitting in the Claim Vault are immediately transferred to the Claimant's wallet. The Claimant effectively becomes a major stakeholder in the collection.
-  - **If Expired:** If 6 months pass without a valid claim, the `burn_unclaimed_tokens` instruction can be called by any user. This burns the tokens in the vault, permanently reducing the total supply.
+  - **If Expired:** If 6 months pass without a valid claim, any user can submit a transaction to burn the unclaimed tokens. This burns the tokens in the vault, permanently reducing the total supply.
 
 ## 5. Off-Chain Indexer API
 
-The Indexer bridges the gap between the immutable Solana blockchain and the responsive client UI.
+The Indexer bridges the gap between the immutable Solana blockchain and the responsive client UI. It provides real-time pricing data, trusted peer discovery, and moderation synchronization services.
 
-### 5.1 Trust & Discovery Endpoints
+### 5.1 Trust & Discovery Services
 
-- **GET `/nodes/trusted`:** Returns a list of Peers with high `PeerTrustState` scores. The client uses this list to prioritize connections ("Swarm Connect") for faster downloads, ensuring users connect to reliable, high-bandwidth nodes first.
-- **GET `/collections/:id/pool`:** Returns real-time pricing data from the Orca pool, allowing the UI to display the USD cost of access dynamically.
+The Indexer maintains a database of peer trust scores and collection pricing information:
+
+- **Trusted Peer Discovery:** The Indexer aggregates on-chain `PeerTrustState` data to provide a prioritized list of reliable IPFS peers. The client uses this list to prioritize connections ("Swarm Connect") for faster downloads, ensuring users connect to reliable, high-bandwidth nodes first.
+
+- **Real-Time Pricing:** The Indexer monitors Orca liquidity pools and provides real-time pricing data, allowing the UI to display the USD cost of access dynamically.
+
+For complete API endpoint specifications, request/response formats, and query parameters, see Appendix C: API Endpoints.
 
 ### 5.2 Moderation Sync & Blacklisting
 
-- The Indexer listens for `CopyrightClaim` and `ContentReport` events.
-- If a claim is successful, the Indexer updates the collection metadata to reflect the new "True Owner," ensuring the UI displays the correct attribution.
-- If a `ContentReport` is approved (for illegal content), the Indexer flags the content in its database. While the data remains on IPFS, the official client will refuse to resolve the CID, effectively de-platforming the content from the average user's view.
+The Indexer synchronizes moderation decisions from the on-chain moderation system:
+
+- **Event Monitoring:** The Indexer listens for `CopyrightClaim` and `ContentReport` events on the blockchain.
+
+- **Metadata Updates:** If a copyright claim is successful, the Indexer updates the collection metadata to reflect the new "True Owner," ensuring the UI displays the correct attribution.
+
+- **Content Blacklisting:** If a `ContentReport` is approved (for illegal content), the Indexer flags the content in its database. While the data remains on IPFS, the official client will refuse to resolve the CID, effectively de-platforming the content from the average user's view.
 
 ## 6. Moderation System (Staked Moderators)
 
@@ -977,3 +887,386 @@ Moderators must stake CAPGM to rule on Copyright Claims. This introduces "Skin i
 
 - **Scenario:** If Moderators collude to approve false claims (stealing the 10% vault for themselves), they can be challenged.
 - **Slashing:** If a Super Moderator reviews the decision and finds it fraudulent, the malicious Moderators' staked CAPGM is slashed (burned or sent to treasury). This potential loss is mathematically designed to be greater than the potential gain from stealing the vault, creating a strong economic disincentive for corruption.
+
+---
+
+---
+
+## Technical Specification Appendix
+
+### Appendix A: Solana Account Structures (PDAs)
+
+The following Rust structs define the on-chain account structures used by the CaptureGem protocol. All accounts are Program Derived Addresses (PDAs) unless otherwise specified.
+
+#### A.1 Global State
+
+```rust
+#[account]
+pub struct GlobalState {
+    pub admin: Pubkey,                    // Protocol administrator
+    pub treasury: Pubkey,                 // Treasury account that receives protocol fees
+    pub indexer_api_url: String,          // URL for the off-chain indexer API
+    pub node_registry_url: String,        // URL for the node registry
+    pub moderator_stake_minimum: u64,     // Minimum CAPGM stake required to be a moderator
+    pub capgm_mint: Pubkey,               // The CAPGM ecosystem token mint
+    pub fee_basis_points: u16,            // Purchase fee in basis points (default: 200 = 2%)
+    pub updates_disabled: bool,           // One-way lock to prevent future updates
+    pub bump: u8,
+}
+```
+
+#### A.2 Collection State
+
+```rust
+#[account]
+pub struct CollectionState {
+    pub owner: Pubkey,               // The original creator
+    pub collection_id: String,       // Unique slug (e.g., "cooking-101")
+    pub cid_hash: [u8; 32],          // SHA-256 hash of the collection IPFS CID (not the CID itself)
+    pub mint: Pubkey,                // The Collection Token Mint address
+    pub pool_address: Pubkey,        // The specific Orca Whirlpool/Pool Address
+    pub claim_vault: Pubkey,         // PDA holding the 10% reserve
+    pub claim_deadline: i64,         // Timestamp (Now + 6 months)
+    pub total_trust_score: u64,      // Aggregate reliability of this collection's swarm
+    pub is_blacklisted: bool,        // Moderator toggle for illegal content
+    pub bump: u8,
+}
+```
+
+#### A.3 Access Escrow
+
+```rust
+#[account]
+pub struct AccessEscrow {
+    pub purchaser: Pubkey,           // The user buying content (only they can release funds)
+    pub collection: Pubkey,          // The content being bought
+    pub access_nft_mint: Pubkey,     // The NFT mint address proving access rights
+    pub cid_hash: [u8; 32],          // SHA-256 hash of the collection CID (for verification)
+    pub amount_locked: u64,          // Tokens bought from the pool (50% of purchase), waiting for release
+    pub created_at: i64,             // Timestamp for 24-hour burn timeout logic
+    pub is_cid_revealed: bool,       // Whether a pinner has revealed the CID
+    pub bump: u8,
+}
+```
+
+#### A.4 CID Reveal
+
+```rust
+#[account]
+pub struct CidReveal {
+    pub escrow: Pubkey,              // The AccessEscrow this reveal is for
+    pub pinner: Pubkey,              // The peer who revealed the CID (must be a registered pinner)
+    pub encrypted_cid: Vec<u8>,      // CID encrypted with purchaser's public key (X25519/ECIES)
+    pub revealed_at: i64,            // Timestamp of reveal
+    pub bump: u8,
+}
+```
+
+#### A.5 Peer Trust State
+
+```rust
+#[account]
+pub struct PeerTrustState {
+    pub peer_wallet: Pubkey,
+    pub total_successful_serves: u64, // Total number of released escrows
+    pub trust_score: u64,             // Weighted score (Serves * Consistency)
+    pub last_active: i64,             // For pruning inactive nodes
+}
+```
+
+#### A.6 Collection Staking Pool
+
+```rust
+#[account]
+pub struct CollectionStakingPool {
+    pub collection: Pubkey,           // The collection this pool is for
+    pub total_staked: u64,            // Total collection tokens staked in this pool
+    pub reward_per_token: u128,       // Accumulated rewards per token (scaled)
+    pub bump: u8,
+}
+```
+
+#### A.7 Staker Position
+
+```rust
+#[account]
+pub struct StakerPosition {
+    pub staker: Pubkey,               // The user who staked
+    pub collection: Pubkey,           // The collection being staked
+    pub amount_staked: u64,           // Number of collection tokens staked
+    pub reward_debt: u128,            // Used to calculate pending rewards
+    pub bump: u8,
+}
+```
+
+### Appendix B: IPFS JSON Schemas
+
+### B.1 Collection Manifest Schema (v1.0)
+
+The Collection Manifest is a JSON document stored on IPFS that serves as the complete catalog for a content collection. This document contains all metadata needed to discover, verify, and access videos within the collection.
+
+#### B.1.1 Top-Level Structure
+
+```json
+{
+  "schema_version": 1,
+  "collection_id": "creator-collection-2024",
+  "name": "Summer Collection 2024",
+  "description": "Exclusive summer content from @creator",
+  "creator": {
+    "username": "creator_username",
+    "display_name": "Creator Name",
+    "wallet_address": "5xKb...",
+    "bio": "Professional content creator...",
+    "avatar_cid": "QmAvatar...",
+    "social_links": {
+      "twitter": "https://twitter.com/...",
+      "website": "https://..."
+    },
+    "verified": true
+  },
+  "created_at": "2024-06-01T00:00:00Z",
+  "updated_at": "2024-06-15T10:30:00Z",
+  "total_videos": 12,
+  "total_duration_seconds": 7200,
+  "content_rating": "explicit",
+  "tags": ["summer", "outdoor", "4k"],
+  "cover_image_cid": "QmCover...",
+  "preview_cid": "QmPreview...",
+  "videos": [ /* array of video objects */ ]
+}
+```
+
+#### B.1.2 Video Object Structure
+
+**Standard Video Example:**
+```json
+{
+  "video_id": "vid001",
+  "title": "Summer Beach Day",
+  "description": "A beautiful day at the beach...",
+  "cid": "QmVideoContent...",
+  "duration_seconds": 600,
+  "recorded_at": "2024-06-05T14:30:00Z",
+  "uploaded_at": "2024-06-06T09:00:00Z",
+  "performer_username": "creator_username",
+  "additional_performers": ["guest_performer"],
+  "technical_specs": {
+    "resolution": "3840x2160",
+    "fps": 60,
+    "codec": "h265",
+    "bitrate_kbps": 15000,
+    "is_vr": false,
+    "audio_codec": "aac",
+    "audio_bitrate_kbps": 256,
+    "hdr": true
+  },
+  "thumbnail_cid": "QmThumb001...",
+  "preview_clip_cid": "QmPreviewClip001...",
+  "tags": ["beach", "outdoor", "daytime"],
+  "content_warnings": [],
+  "file_size_bytes": 1200000000,
+  "file_format": "mp4"
+}
+```
+
+**VR Video Example:**
+```json
+{
+  "video_id": "vr_vid001",
+  "title": "VR Experience: Sunset",
+  "cid": "QmVRVideo...",
+  "duration_seconds": 900,
+  "recorded_at": "2024-06-10T19:00:00Z",
+  "performer_username": "creator_username",
+  "technical_specs": {
+    "resolution": "7680x4320",
+    "fps": 60,
+    "codec": "h265",
+    "bitrate_kbps": 40000,
+    "is_vr": true,
+    "vr_format": "equirectangular",
+    "vr_stereo_mode": "side-by-side",
+    "audio_codec": "aac",
+    "audio_bitrate_kbps": 320
+  },
+  "tags": ["vr", "180", "sunset"]
+}
+```
+
+#### B.1.3 Schema Fields Reference
+
+**Required Fields (Collection Level):**
+- `schema_version` (number): Protocol version for forward compatibility (current: 1)
+- `collection_id` (string): Matches on-chain CollectionState identifier
+- `name` (string): Human-readable collection name
+- `creator` (object): Creator/performer metadata
+  - `username` (string): Stage name/handle
+- `created_at` (ISO 8601 string): Manifest creation timestamp
+- `total_videos` (number): Count of videos in collection
+- `total_duration_seconds` (number): Sum of all video durations
+- `content_rating` (string): "explicit" | "mature" | "general"
+- `videos` (array): Array of video metadata objects
+
+**Required Fields (Video Level):**
+- `video_id` (string): Unique identifier within collection
+- `title` (string): Video title
+- `cid` (string): IPFS CID of video file
+- `duration_seconds` (number): Video length in seconds
+- `recorded_at` (ISO 8601 string): Recording timestamp
+- `performer_username` (string): Primary performer stage name
+- `technical_specs` (object): Technical specifications
+  - `resolution` (string): Video dimensions (e.g., "1920x1080", "3840x2160")
+  - `is_vr` (boolean): Whether this is a VR/360 video
+
+**VR-Specific Fields (when is_vr = true):**
+- `vr_format` (string): "equirectangular" | "cubemap" | "dome" | "fisheye"
+- `vr_stereo_mode` (string): "mono" | "side-by-side" | "top-bottom" | "anaglyph"
+
+**Optional but Recommended:**
+- `fps` (number): Frame rate (30, 60, 120)
+- `codec` (string): Video codec ("h264", "h265", "vp9")
+- `bitrate_kbps` (number): Video bitrate
+- `thumbnail_cid` (string): IPFS CID of thumbnail image
+- `tags` (array): Content tags for search/discovery
+- `file_size_bytes` (number): File size for bandwidth estimation
+
+### Appendix C: API Endpoints
+
+The Off-Chain Indexer API provides real-time data and discovery services for the CaptureGem protocol. All endpoints return JSON responses.
+
+#### C.1 Trust & Discovery Endpoints
+
+**GET `/nodes/trusted`**
+
+Returns a list of IPFS peers with high trust scores, prioritized for connection.
+
+**Response:**
+```json
+{
+  "peers": [
+    {
+      "wallet_address": "5xKbW...",
+      "peer_id": "12D3KooW...",
+      "trust_score": 8500,
+      "total_successful_serves": 120,
+      "last_active": 1704326400,
+      "bandwidth_mbps": 100
+    }
+  ],
+  "updated_at": 1704326400
+}
+```
+
+**GET `/collections/:id/pool`**
+
+Returns real-time pricing data from the Orca liquidity pool for a specific collection.
+
+**Parameters:**
+- `id` (path): Collection identifier (slug)
+
+**Response:**
+```json
+{
+  "collection_id": "cooking-101",
+  "pool_address": "7xKbW...",
+  "current_price_usd": 0.25,
+  "liquidity_usd": 50000,
+  "volume_24h": 1000,
+  "price_change_24h": 0.05,
+  "updated_at": 1704326400
+}
+```
+
+#### C.2 Moderation Endpoints
+
+**POST `/moderation/report`**
+
+Submit a content report or copyright claim.
+
+**Request Body:**
+```json
+{
+  "type": "ContentReport" | "CopyrightClaim",
+  "collection_id": "cooking-101",
+  "reason": "Illegal content" | "IP violation",
+  "evidence": ["https://example.com/proof"],
+  "reporter_wallet": "5xKbW..."
+}
+```
+
+**Response:**
+```json
+{
+  "ticket_id": "ticket_123",
+  "status": "pending",
+  "created_at": 1704326400
+}
+```
+
+**GET `/moderation/tickets/:id`**
+
+Retrieve the status of a moderation ticket.
+
+**Response:**
+```json
+{
+  "ticket_id": "ticket_123",
+  "type": "CopyrightClaim",
+  "status": "approved" | "rejected" | "pending",
+  "collection_id": "cooking-101",
+  "resolution": {
+    "approved_by": ["moderator_1", "moderator_2"],
+    "resolved_at": 1704326500
+  }
+}
+```
+
+#### C.3 Collection Metadata Endpoints
+
+**GET `/collections/:id`**
+
+Returns metadata for a specific collection.
+
+**Response:**
+```json
+{
+  "collection_id": "cooking-101",
+  "name": "Cooking Collection 2024",
+  "owner": "5xKbW...",
+  "total_videos": 12,
+  "created_at": 1704000000,
+  "is_blacklisted": false,
+  "trust_score": 7500
+}
+```
+
+**GET `/collections`**
+
+Returns a paginated list of all collections.
+
+**Query Parameters:**
+- `page` (number): Page number (default: 1)
+- `limit` (number): Results per page (default: 20)
+- `sort` (string): Sort order - "newest" | "popular" | "trust_score" (default: "newest")
+
+**Response:**
+```json
+{
+  "collections": [
+    {
+      "collection_id": "cooking-101",
+      "name": "Cooking Collection 2024",
+      "owner": "5xKbW...",
+      "total_videos": 12,
+      "created_at": 1704000000
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 150,
+    "total_pages": 8
+  }
+}
+```
