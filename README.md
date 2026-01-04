@@ -18,6 +18,7 @@ The CaptureGem ecosystem allows users to act as independent channels ("Collectio
 - **Decentralized Storage (IPFS)**: The Electron client includes an embedded Kubo (go-ipfs) node. Every active user automatically contributes to the network, and high-performing peers earn payments through the trust-based escrow system.
 - **On-Chain Trust Scores**: Peers build persistent reputation through successful content delivery, making them preferred nodes for future users via the Indexer's trusted endpoint.
 - **IP Protection (Claim Vault)**: 10% of each collection's supply is reserved for 6 months. True rights holders can claim this reserve if content is stolen, or it burns after expiration, creating deflationary pressure.
+- **Dividends to Collection Token Holders**: 50% of all collection access purchases go to the holders of the collection tokens, who need to stake the tokens. The remaining 50% goes to the peers who host content, ensuring both token holders and infrastructure providers are rewarded for their contributions.
 - **Staked Moderation**: A decentralized workforce of CAPGM-staked moderators reviews reported content and IP disputes, with economic security through slashing mechanisms.
 
 ## Repository Structure

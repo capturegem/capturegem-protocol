@@ -4,3 +4,4 @@ declare module 'ed2curve' {
   export function convertSecretKey(ed25519SecretKey: Uint8Array): Uint8Array | null;
 }
 
+
