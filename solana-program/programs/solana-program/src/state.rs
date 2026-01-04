@@ -57,6 +57,13 @@ pub struct CollectionState {
     pub owner_reward_balance: u64, // Accumulated 20% fees for Owner
     pub staker_reward_balance: u64,   // Accumulated 10% fees for CAPGM Stakers
     pub tokens_minted: bool,          // Whether collection tokens have been minted (one-time operation)
+    
+    // Proportional Copyright Claims
+    pub total_videos: u16,                // Total videos in collection (e.g., 10)
+    pub claim_vault_initial_amount: u64,  // The original 10% amount (set during mint)
+    pub claimed_bitmap: Vec<u8>,          // Bitmask: 1 = claimed, 0 = unclaimed
+    pub censored_bitmap: Vec<u8>,         // Bitmask: 1 = censored, 0 = active
+    
     pub bump: u8,
 }
 
@@ -65,8 +72,13 @@ impl CollectionState {
     // + 32 (claim_vault) + 8 (claim_deadline) + 8 (total_trust_score) + 1 (is_blacklisted) + MAX_NAME_LEN (name)
     // + MAX_URL_LEN (content_cid) + 8 (access_threshold_usd) + 32 (oracle_feed)
     // + 8 (owner_reward_balance) + 8 (staker_reward_balance)
-    // + 1 (tokens_minted) + 1 (bump)
-    pub const MAX_SIZE: usize = 8 + 32 + MAX_ID_LEN + 32 + 32 + 32 + 32 + 8 + 8 + 1 + MAX_NAME_LEN + MAX_URL_LEN + 8 + 32 + 8 + 8 + 1 + 1;
+    // + 1 (tokens_minted) + 2 (total_videos) + 8 (claim_vault_initial_amount)
+    // + 4 (claimed_bitmap length) + 4 (censored_bitmap length)
+    // + 1 (bump)
+    // Note: Bitmap vectors are variable-length and space is calculated dynamically in create_collection
+    pub const BASE_SIZE: usize = 8 + 32 + MAX_ID_LEN + 32 + 32 + 32 + 32 + 8 + 8 + 1 + MAX_NAME_LEN + MAX_URL_LEN + 8 + 32 + 8 + 8 + 1 + 2 + 8 + 4 + 4 + 1;
+    // Legacy MAX_SIZE kept for backward compatibility, but actual space calculation is done dynamically
+    pub const MAX_SIZE: usize = BASE_SIZE;
 }
 
 #[account]
@@ -136,13 +148,19 @@ pub struct ModTicket {
     pub verdict: bool,          // true = approved (banned), false = rejected (kept)
     pub resolver: Option<Pubkey>, // Moderator who resolved it
     pub created_at: i64,        // Unix timestamp when the ticket was created
+    pub claim_indices: Vec<u16>, // Specific video indices being claimed (e.g., [0, 3, 5])
     pub bump: u8,
 }
 
 impl ModTicket {
     // 8 (discriminator) + 32 (reporter) + MAX_ID_LEN (target_id) + 1 (ticket_type) + MAX_REASON_LEN (reason)
-    // + 1 (resolved) + 1 (verdict) + 33 (resolver Option<Pubkey>) + 8 (created_at) + 1 (bump)
-    pub const MAX_SIZE: usize = 8 + 32 + MAX_ID_LEN + 1 + MAX_REASON_LEN + 1 + 1 + 33 + 8 + 1;
+    // + 1 (resolved) + 1 (verdict) + 33 (resolver Option<Pubkey>) + 8 (created_at)
+    // + 4 (claim_indices length) + variable (claim_indices Vec<u16>)
+    // + 1 (bump)
+    // Note: claim_indices vector is variable-length and space is calculated dynamically in create_ticket
+    pub const BASE_SIZE: usize = 8 + 32 + MAX_ID_LEN + 1 + MAX_REASON_LEN + 1 + 1 + 33 + 8 + 4 + 1;
+    // Legacy MAX_SIZE kept for backward compatibility, but actual space calculation is done dynamically
+    pub const MAX_SIZE: usize = BASE_SIZE + 64; // Assume max ~32 video indices (64 bytes) for default
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]

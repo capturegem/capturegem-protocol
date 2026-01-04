@@ -24,7 +24,9 @@ pub struct CreateTicket<'info> {
     #[account(
         init,
         payer = reporter,
-        space = ModTicket::MAX_SIZE,
+        // Calculate space dynamically: base size + 4 (vec length) + (claim_indices.len() * 2) bytes
+        // For now, use a reasonable default (assume max 32 indices = 64 bytes)
+        space = ModTicket::BASE_SIZE + 64,
         seeds = [b"ticket", target_id.as_bytes()],
         bump
     )]
@@ -120,7 +122,8 @@ pub fn create_ticket(
     ctx: Context<CreateTicket>, 
     target_id: String, 
     ticket_type: TicketType,
-    reason: String
+    reason: String,
+    claim_indices: Vec<u16>,
 ) -> Result<()> {
     require!(target_id.len() <= crate::state::MAX_ID_LEN, ProtocolError::StringTooLong);
     require!(reason.len() <= crate::state::MAX_REASON_LEN, ProtocolError::StringTooLong);
@@ -137,6 +140,11 @@ pub fn create_ticket(
             clock.unix_timestamp < collection.claim_deadline,
             ProtocolError::Unauthorized
         );
+        
+        // Validate indices against collection limits
+        for &idx in &claim_indices {
+            require!(idx < collection.total_videos, ProtocolError::InvalidAccount);
+        }
     }
     
     let ticket = &mut ctx.accounts.ticket;
@@ -150,6 +158,7 @@ pub fn create_ticket(
     ticket.verdict = false;
     ticket.resolver = None;
     ticket.created_at = clock.unix_timestamp;
+    ticket.claim_indices = claim_indices; // Store indices
     ticket.bump = ctx.bumps.ticket;
     Ok(())
 }
@@ -211,29 +220,55 @@ pub fn resolve_copyright_claim(ctx: Context<ResolveCopyrightClaim>, verdict: boo
     ticket.verdict = verdict; // true = approved (claimant gets vault), false = rejected
     ticket.resolver = Some(ctx.accounts.moderator.key());
 
-    // If approved, transfer claim vault tokens to claimant
+    // If approved, transfer proportional claim vault tokens to claimant
     if verdict {
-        // ⚠️ SECURITY: Read actual balance from claim_vault token account
-        // SPL Token account structure: mint (32 bytes) + owner (32 bytes) + amount (8 bytes) at offset 64
-        let token_account_data = ctx.accounts.claim_vault.try_borrow_data()?;
+        // 0. Verify tokens have been minted (claim_vault_initial_amount must be set)
         require!(
-            token_account_data.len() >= 72, // At least 64 + 8 bytes
-            ProtocolError::InvalidAccount
-        );
-        let amount_bytes = &token_account_data[64..72];
-        let vault_balance = u64::from_le_bytes(
-            amount_bytes.try_into().map_err(|_| ProtocolError::InvalidAccount)?
+            collection.tokens_minted && collection.claim_vault_initial_amount > 0,
+            ProtocolError::InvalidFeeConfig
         );
         
-        require!(vault_balance > 0, ProtocolError::InsufficientFunds);
+        // 1. Verify Claim Indices
+        require!(!ticket.claim_indices.is_empty(), ProtocolError::InvalidFeeConfig);
         
-        // Get collection info before mutable borrow
+        // 2. Check Bitmap for double-claims
+        for &video_idx in &ticket.claim_indices {
+            let byte_idx = (video_idx / 8) as usize;
+            let bit_idx = (video_idx % 8) as u8;
+            
+            // Check bounds
+            require!(byte_idx < collection.claimed_bitmap.len(), ProtocolError::InvalidAccount);
+            
+            // Check if bit is already set
+            let is_claimed = (collection.claimed_bitmap[byte_idx] >> bit_idx) & 1;
+            require!(is_claimed == 0, ProtocolError::Unauthorized); // "Already Claimed" error
+        }
+
+        // 3. Calculate Proportional Amount
+        // Share = (Initial_Vault / Total_Videos) * Claimed_Count
+        // Use initial amount to maintain stable value per video
+        let count_claimed = ticket.claim_indices.len() as u64;
+        let per_video_share = collection.claim_vault_initial_amount
+            .checked_div(collection.total_videos as u64)
+            .ok_or(ProtocolError::MathOverflow)?;
+            
+        let payout_amount = per_video_share
+            .checked_mul(count_claimed)
+            .ok_or(ProtocolError::MathOverflow)?;
+
+        require!(payout_amount > 0, ProtocolError::InsufficientFunds);
+
+        // 4. Update Bitmap (Mark as claimed)
+        for &video_idx in &ticket.claim_indices {
+            let byte_idx = (video_idx / 8) as usize;
+            let bit_idx = (video_idx % 8) as u8;
+            collection.claimed_bitmap[byte_idx] |= 1 << bit_idx;
+        }
+
+        // 5. Transfer Calculated Amount
         let collection_id = collection.collection_id.clone();
-        let claim_vault_key = collection.claim_vault;
-        let collection_owner = collection.owner;
-        
-        // The claim_vault should be a PDA-owned token account with the collection as authority
         let collection_bump = ctx.bumps.collection;
+        let collection_owner = collection.owner;
         let collection_seeds = &[
             b"collection",
             collection_owner.as_ref(),
@@ -242,23 +277,25 @@ pub fn resolve_copyright_claim(ctx: Context<ResolveCopyrightClaim>, verdict: boo
         ];
         let collection_signer = &[&collection_seeds[..]];
         
-        // Transfer all tokens from claim_vault to claimant_token_account
         let transfer_ix = TransferChecked {
             from: ctx.accounts.claim_vault.to_account_info(),
             mint: ctx.accounts.collection_mint.to_account_info(),
             to: ctx.accounts.claimant_token_account.to_account_info(),
             authority: ctx.accounts.collection.to_account_info(),
         };
-        let cpi_program = ctx.accounts.token_program.to_account_info();
-        let cpi_ctx = CpiContext::new_with_signer(cpi_program, transfer_ix, collection_signer);
-        anchor_spl::token_interface::transfer_checked(cpi_ctx, vault_balance, ctx.accounts.collection_mint.decimals)?;
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(), 
+            transfer_ix, 
+            collection_signer
+        );
+        anchor_spl::token_interface::transfer_checked(cpi_ctx, payout_amount, ctx.accounts.collection_mint.decimals)?;
         
         msg!(
-            "CopyrightClaimApproved: Collection={} Claimant={} Vault={} Amount={}",
+            "CopyrightClaimPaid: Collection={} Claimant={} Amount={} Indices={:?}",
             collection_id,
             ticket.reporter,
-            claim_vault_key,
-            vault_balance
+            payout_amount,
+            ticket.claim_indices
         );
     } else {
         msg!(

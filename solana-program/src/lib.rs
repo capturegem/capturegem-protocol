@@ -26,9 +26,10 @@ pub mod solana_program {
         collection_id: String, 
         name: String, 
         cid_hash: [u8; 32],
-        access_threshold_usd: u64
+        access_threshold_usd: u64,
+        total_videos: u16
     ) -> Result<()> {
-        instructions::user::create_collection(ctx, collection_id, name, cid_hash, access_threshold_usd)
+        instructions::user::create_collection(ctx, collection_id, name, cid_hash, access_threshold_usd, total_videos)
     }
 
     pub fn buy_access_token(ctx: Context<BuyAccess>) -> Result<()> {
@@ -66,9 +67,10 @@ pub mod solana_program {
         ctx: Context<CreateTicket>,
         target_id: String,
         ticket_type: TicketType,
-        reason: String
+        reason: String,
+        claim_indices: Vec<u16>
     ) -> Result<()> {
-        instructions::moderation::create_ticket(ctx, target_id, ticket_type, reason)
+        instructions::moderation::create_ticket(ctx, target_id, ticket_type, reason, claim_indices)
     }
 
     pub fn resolve_ticket(

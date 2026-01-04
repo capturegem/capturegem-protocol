@@ -8,7 +8,7 @@ use spl_token_2022::extension::ExtensionType;
 use spl_token_2022::instruction::initialize_mint;
 
 #[derive(Accounts)]
-#[instruction(collection_id: String, name: String, cid_hash: [u8; 32], access_threshold_usd: u64)]
+#[instruction(collection_id: String, name: String, cid_hash: [u8; 32], access_threshold_usd: u64, total_videos: u16)]
 pub struct CreateCollection<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
@@ -16,7 +16,9 @@ pub struct CreateCollection<'info> {
     #[account(
         init,
         payer = owner,
-        space = CollectionState::MAX_SIZE,
+        // Calculate space dynamically based on bitmap size
+        // Base size + (total_videos / 8 + 1) * 2 for claimed/censored bitmaps
+        space = CollectionState::BASE_SIZE + ((total_videos as usize + 7) / 8) * 2,
         seeds = [b"collection", owner.key().as_ref(), collection_id.as_bytes()],
         bump
     )]
@@ -66,9 +68,11 @@ pub fn create_collection(
     name: String,
     cid_hash: [u8; 32],
     access_threshold_usd: u64,
+    total_videos: u16,
 ) -> Result<()> {
     require!(collection_id.len() <= MAX_ID_LEN, ProtocolError::StringTooLong);
     require!(name.len() <= MAX_NAME_LEN, ProtocolError::StringTooLong);
+    require!(total_videos > 0, ProtocolError::InvalidFeeConfig);
     
     // Validate that the treasury matches the GlobalState treasury
     require!(
@@ -100,6 +104,15 @@ pub fn create_collection(
     collection.owner_reward_balance = 0;
     collection.staker_reward_balance = 0;
     collection.tokens_minted = false; // Tokens not yet minted
+    
+    // Initialize proportional copyright claim fields
+    collection.total_videos = total_videos;
+    collection.claim_vault_initial_amount = 0; // Will be set during minting
+    // Initialize bitmaps with 0s (size = ceil(total_videos / 8))
+    let bitmap_size = (total_videos as usize + 7) / 8;
+    collection.claimed_bitmap = vec![0; bitmap_size];
+    collection.censored_bitmap = vec![0; bitmap_size];
+    
     collection.bump = ctx.bumps.collection;
 
     // --- MANUAL MINT CREATION (NO TRANSFER FEE EXTENSION) ---
@@ -402,7 +415,9 @@ pub fn mint_collection_tokens(
     anchor_spl::token_interface::mint_to(reserve_cpi_ctx, final_reserve_amount)?;
 
     // Mark tokens as minted (one-time operation - cannot mint again)
+    // SNAPSHOT THE INITIAL AMOUNT for proportional claim calculations
     let collection = &mut ctx.accounts.collection;
+    collection.claim_vault_initial_amount = claim_vault_amount;
     collection.tokens_minted = true;
 
     msg!(
