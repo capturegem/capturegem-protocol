@@ -14,7 +14,7 @@ A pinner who hosts the collection then sends an encrypted message to the purchas
 
 The payment is processed as follows: first, a protocol fee (default 2%, configurable) is deducted and sent to the protocol treasury. The remaining amount is split: 50% flows to a staking pool where collection token holders earn rewards, and 50% is held in escrow. This escrowed payment is only released to storage providers (IPFS Peers) once the purchaser's client confirms the content was successfully delivered—and critically, the buyer determines which peers deserve payment based on actual performance. If the buyer does not disburse funds within 24 hours, the escrowed tokens are automatically burned, creating deflationary pressure. This ensures a meritocratic network where high-performance nodes build on-chain Trust Scores, creating a feedback loop where quality service is algorithmically rewarded with higher earning potential.
 
-Additionally, the protocol embeds intellectual property protection at the tokenomic level. A portion of every collection's supply is reserved in a "Claim Vault" for potential copyright disputes. This ensures that true rights holders have a path to monetization even if they were not the initial uploaders, solving a critical pain point in decentralized content distribution where anonymity can often shield infringement.
+Additionally, the protocol embeds intellectual property protection at the tokenomic level. A portion of every collection's supply (10%) is reserved in a "Claim Vault." If a collection contains stolen content, the rightful owners can submit proof to moderators. Upon approval, they do not seize the entire vault; instead, they receive a proportional share of tokens corresponding to the specific videos they own. This allows multiple performers to claim rights within a single collection. Simultaneously, the protocol enforces strict immutability—collections cannot be modified after minting—though individual videos can be cryptographically flagged as "Censored" by moderators to prevent their distribution without altering the underlying collection hash.
 
 ## 2. System Architecture
 
@@ -359,10 +359,11 @@ If a collection needs schema updates (e.g., adding new videos), the creator:
     - **Option B (Rejected):** Protocol-lent CAPGM would introduce systemic risk and potential for abuse, as creators could abandon collections without financial consequence.
   - **Economic Rationale:** This upfront cost is intentionally designed to be accessible for serious creators while prohibitive for spammers. The creator can recover this investment (and more) through the appreciation of their 10% token allocation and through staking rewards as their collection gains popularity.
 
-**C. The Claim Vault & Burn Mechanism**
+**C. The Claim Vault & Proportional Rights**
 
-- **Purpose:** To protect against IP theft and "Copyright Trolling." If a user uploads stolen content, the true owner has a window of opportunity to prove ownership and claim this 10% reserve, effectively taking a significant ownership stake in the pirated collection.
-- **Expiration & Deflation:** If no valid claim is processed within 6 months of minting, a permissionless instruction `burn_unclaimed_tokens` can be called by anyone. This permanently burns the 10% supply, creating a deflationary event that benefits all existing holders by reducing total supply while demand remains constant.
+- **Purpose:** To protect against IP theft while ensuring fair compensation. The 10% Claim Vault is not a "winner-take-all" pot; it is divisible based on the number of videos in the collection.
+- **Proportional Distribution:** If a collection contains 10 videos, each video represents 1% of the total token supply (10% Vault / 10 Videos). If a performer successfully claims copyright on 3 of those videos, 3% of the total supply is transferred to them from the vault. The remaining 7% stays in the vault for other potential claimants.
+- **Expiration:** Any tokens remaining in the vault after the 6-month vesting period (i.e., unclaimed videos) are burned permissionlessly.
 
 **D. Protocol Fee (Treasury Revenue)**
 
@@ -398,12 +399,13 @@ Stores the immutable metadata, pool references, and claim timers required for pr
 | `owner` | The original creator's wallet address who minted the collection. |
 | `collection_id` | Unique slug identifier for the collection (e.g., "cooking-101"). |
 | `cid_hash` | SHA-256 hash (32 bytes) of the collection IPFS manifest CID. The actual CID is never stored on-chain, only this commitment hash. |
+| `total_videos` | Fixed number of videos in the collection (u16). Required for calculating proportional claim amounts. |
+| `claimed_bitmap` | Bitmask (Vec<u8>) tracking which video indices have had copyright claims paid out. Prevents double-payouts. |
+| `censored_bitmap` | Bitmask (Vec<u8>) tracking which video indices are censored and should not be served. |
 | `mint` | The Collection Token mint address (Token-2022 standard). |
 | `pool_address` | The specific Orca Whirlpool/Pool address where collection tokens are traded against CAPGM. |
 | `claim_vault` | PDA address holding the 10% token reserve for potential copyright claims. |
 | `claim_deadline` | Unix timestamp (i64) marking the expiration of the claim window (mint time + 6 months). After this, tokens can be burned. |
-| `total_trust_score` | Aggregate reliability score of all peers hosting this collection's content, used for discovery prioritization. |
-| `is_blacklisted` | Moderator-controlled flag that marks collections containing illegal or TOS-violating content. |
 | `bump` | PDA bump seed for account derivation. |
 
 **C. Access Escrow**
@@ -500,27 +502,17 @@ The protocol encrypts the *address* (CID), not the content itself, for efficienc
 - Encrypting CIDs is computationally trivial (< 100 bytes), while encrypting video content would be expensive.
 - The CID acts as a "capability token"—knowing it grants access to fetch from any IPFS node.
 
-### 3.4 NFT-Based Access Control at the Peer-to-Peer Layer
+### 3.4 Peer-to-Peer Access Verification
 
-To prevent unauthorized access at the IPFS peer-to-peer level, the protocol mints a unique **Access NFT** for each purchase. This NFT serves as a cryptographic proof of ownership that pinners verify before serving content.
+To prevent unauthorized bandwidth usage, the protocol enforces strict access control at the networking layer.
 
-**A. Access NFT Minting**
+**The Credential:** When a user purchases content, they receive a non-transferable Access NFT. This acts as a permanent, wallet-bound receipt.
 
-When a user purchases access via the `purchase_access` instruction:
-1. A unique NFT mint is created using **Token-2022 (SPL Token Extensions)** with the **Non-Transferable extension** enabled.
-2. One (1) token is minted to the purchaser's wallet (non-divisible, supply = 1).
-3. The NFT mint address is stored in the `AccessEscrow` for reference.
-4. The NFT metadata includes (via Metaplex Token Metadata):
-   - `collection`: The collection ID this NFT grants access to
-   - `purchaser`: The wallet that owns access rights
-   - `purchased_at`: Timestamp of purchase
-5. **Critical Security Feature:** The Token-2022 Non-Transferable extension permanently prevents the NFT from being transferred, sold, or stolen. Once minted to the purchaser's wallet, it cannot be moved to any other wallet, ensuring access rights remain tied to the original buyer.
+**The Handshake:** Before a Pinner serves data, they perform a cryptographic handshake. The purchaser signs a request proving they own the wallet that holds the Access NFT.
 
-**B. Pinner Verification Protocol**
+**The Check:** The Pinner queries the Solana blockchain to verify the NFT exists and is owned by the requester. If the check fails, the connection is dropped immediately.
 
-Before serving any content block via IPFS Bitswap, pinners perform on-chain verification:
-
-**Sequence Diagram: NFT-Based Access Verification**
+**Sequence Diagram: Access Verification**
 
 ```mermaid
 sequenceDiagram
@@ -531,14 +523,12 @@ sequenceDiagram
 
     Note over Purchaser,IPFS: Connection Handshake
     Purchaser->>IPFS: Initiate connection to pinner's peer ID
-    Purchaser->>Pinner: Send signed access proof<br/>(wallet, collection_id, nft_mint, timestamp)
+    Purchaser->>Pinner: Send signed access proof<br/>(wallet, collection_id, access_token, timestamp)
     
     Note over Pinner,Blockchain: Verification Phase
     Pinner->>Pinner: Verify signature matches wallet address
-    Pinner->>Blockchain: Query NFT ownership<br/>(Does wallet hold Access NFT?)
-    Blockchain-->>Pinner: NFT ownership status
-    Pinner->>Blockchain: Verify NFT metadata<br/>(Does collection_id match?)
-    Blockchain-->>Pinner: Metadata verification result
+    Pinner->>Blockchain: Query access token ownership<br/>(Does wallet hold Access NFT?)
+    Blockchain-->>Pinner: Ownership status
     Pinner->>Pinner: Check timestamp freshness<br/>(< 5 minutes old?)
     
     alt All checks pass
@@ -552,53 +542,7 @@ sequenceDiagram
     end
 ```
 
-**C. On-Chain NFT Verification**
-
-Pinners query the Solana blockchain to verify NFT ownership:
-- **Ownership Query**: Pinners query the blockchain to check if the purchaser's wallet holds the Access NFT for the specified mint address
-- **Validation**: The pinner ensures the purchaser's wallet holds exactly 1 token of the NFT mint
-- **Caching**: Verification results can be cached for approximately 30 seconds to reduce blockchain query load
-- **Fallback**: If the blockchain query fails, pinners can accept connections but flag them for manual review
-
-**D. Security Properties**
-
-1. **Non-Transferable (Enforced)**: The NFT uses Token-2022's Non-Transferable extension, making it **impossible** to transfer, sell, or gift. This prevents:
-   - **Access Resale Markets:** Users cannot sell access to third parties.
-   - **Wallet Compromise:** Even if a wallet's private key is stolen, the NFT cannot be moved.
-   - **Sybil Attacks:** Each purchase is permanently bound to the original purchaser's wallet.
-   - The only way to "transfer" access is for the original purchaser to share their wallet's private key (which defeats the purpose and is easily detectable).
-2. **Wallet-Bound Access**: The NFT is permanently tied to the `AccessEscrow.purchaser` wallet. This wallet-binding is enforced both:
-   - **On-Chain:** Via Token-2022 program constraints (transfer instructions fail).
-   - **At Peer Layer:** Pinners verify NFT ownership matches the connecting wallet.
-3. **Expiration**: While NFTs have no inherent expiration, pinners can enforce time-based access by checking the `purchased_at` timestamp in the NFT metadata and refusing service after a configurable period (e.g., 90 days).
-4. **Sybil Resistance**: Each purchase requires a swap on Orca (real economic cost), making it expensive to create fake access accounts.
-
-**E. Why NFTs Instead of Escrow-Only Verification?**
-
-While pinners could theoretically verify access by checking for an `AccessEscrow` account, NFTs provide several advantages:
-- **Persistent Proof**: Escrows expire/close after 24 hours, but NFTs remain as permanent receipts.
-- **Standard Interface**: NFTs use Token-2022 standards, allowing wallets and explorers to display access rights.
-- **True Non-Transferability**: Token-2022's Non-Transferable extension provides cryptographic enforcement that cannot be bypassed, unlike policy-based restrictions.
-- **Offline Verification**: Pinners can verify NFT ownership without querying custom PDA structures.
-- **Freeze & Burn Capability**: The protocol retains freeze/burn authority for moderation purposes.
-
-**F. Key Benefits of Non-Transferable Access NFTs**
-
-The use of Token-2022's Non-Transferable extension provides critical security and economic benefits:
-
-1. **Prevents Access Resale Markets**: Unlike traditional NFTs, these cannot be sold on secondary markets, ensuring creators capture full value from each sale.
-
-2. **Anti-Piracy Enforcement**: Even if someone obtains the collection CID, they cannot access content from pinners without the non-transferable NFT bound to their wallet.
-
-3. **Wallet Compromise Protection**: If a user's wallet is hacked, the attacker cannot move the access NFT to their own wallet, limiting damage.
-
-4. **Regulatory Compliance**: Non-transferability helps avoid classification as a security, as the NFT has no investment value or speculative market.
-
-5. **Fair Creator Revenue**: Every viewer must purchase their own access, eliminating "group buy" schemes where one purchase is shared among many users.
-
-6. **Audit Trail**: Each access NFT creates a permanent, immutable record of who purchased access and when, useful for analytics and compliance.
-
-7. **Moderation Effectiveness**: Freezing or burning a non-transferable NFT immediately revokes access with no recovery path (user can't transfer to a new wallet).
+*Note: For the full technical specification of the Token-2022 standards, anti-piracy measures, and metadata schemas used for these access tokens, see Appendix D: Access Token Specification.*
 
 **D. Collection Staking Pool**
 
@@ -641,6 +585,7 @@ Tracks an individual user's stake in a collection staking pool and their earned 
   - The SHA-256 hash of the collection's IPFS manifest CID. The actual CID is never stored on-chain.
   - The creator must be actively pinning the manifest and all video content on IPFS.
 - **CID Hash Commitment:** The `cid_hash` is stored in the `CollectionState` PDA. This hash is publicly visible and used by purchasers to verify that pinners reveal the correct manifest CID. The actual content address remains private, known only to the creator and authorized pinners.
+- **Immutability Enforcement:** Upon creation, the CollectionState is marked as immutable. The cid_hash representing the content manifest cannot be updated, and videos cannot be added or removed. This guarantees that early buyers know exactly what they are investing in—the content supply is fixed.
 - **Mint & Distribute:**
   - The Program mints the total supply (e.g., 1,000,000 tokens) of the Collection Token.
   - 10% is transferred to the Creator's wallet.
@@ -682,17 +627,7 @@ flowchart TD
 - **Payment Split:** After fee deduction, the remaining tokens are split automatically:
   - 50% is transferred to the Collection Ownership Staking Pool where token stakers earn proportional rewards.
   - 50% is locked in an `AccessEscrow` PDA (with the `cid_hash` stored), awaiting content delivery confirmation.
-- **Access NFT Minting:** Atomically with the escrow creation, an Access NFT is minted:
-  1. A unique NFT mint account is created using **Token-2022 with Non-Transferable extension** (1 token supply, 0 decimals).
-  2. The single token is minted to the purchaser's wallet.
-  3. **Non-Transferable Enforcement**: The Token-2022 Non-Transferable extension is enabled on the mint, making it cryptographically impossible to transfer the NFT to any other wallet. This ensures:
-     - Access rights are permanently bound to the purchaser's wallet.
-     - No secondary markets can form for access rights.
-     - Stolen/compromised wallets cannot transfer access to attackers.
-  4. Metadata is attached to the NFT, including the collection name, a reference to the collection ID, the purchaser's wallet address, and the purchase timestamp. This metadata is stored off-chain and referenced via a URI.
-  5. The NFT mint address is stored in the `AccessEscrow.access_nft_mint` field.
-  6. The protocol retains **freeze authority** on the mint to enable moderation (revoking access by freezing the token account).
-  7. This NFT becomes the purchaser's cryptographic proof of access rights.
+- **Access Credential Issue:** Atomically with the payment, the protocol mints a non-transferable Access NFT to the purchaser's wallet. This token is permanently bound to the user and cannot be sold or transferred, ensuring that every viewer contributes to the economy.
 - **Pinner CID Reveal:** One of the pinners who is actively hosting the collection observes the new escrow account on-chain. The pinner:
   1. Encrypts the collection CID using the purchaser's wallet public key (X25519-XSalsa20-Poly1305 / ECIES).
   2. Submits a transaction that creates an on-chain account containing the encrypted CID bytes, linked to the escrow.
@@ -704,7 +639,7 @@ flowchart TD
   4. **If the hashes match:** The CID is authentic, and the client proceeds to download content.
   5. **If the hashes do not match:** The reveal is rejected as fraudulent, and the client waits for another pinner to provide a valid reveal.
 - **Collection Manifest Structure:** The revealed CID points to a **Collection Manifest Document**—a structured file stored on IPFS that contains the CIDs of all individual videos in the collection, along with their metadata (titles, durations, etc.). This two-tier structure allows a single purchase to unlock multiple pieces of content.
-- **NFT Verification at Peer Connection:** Before connecting to IPFS peers to download content, the purchaser's client creates a signed handshake message containing their wallet address, collection identifier, Access NFT reference, and current timestamp. This signed message is presented to each pinner during the IPFS connection handshake. Pinners verify the signature and check on-chain that the wallet owns the Access NFT. Only pinners that accept the NFT proof will serve content blocks via Bitswap. This prevents unauthorized users (who don't own the NFT) from accessing content even if they somehow obtain the CID.
+- **Authenticated Connection:** The client initiates a connection to these peers, presenting the Access NFT as proof of payment. Pinners verify the NFT ownership on-chain. Valid requests are added to an allowlist; invalid requests are rejected to save bandwidth.
 - **Content Download:** With the verified collection CID and accepted NFT proof, the client fetches the manifest and then begins requesting the individual video CIDs from the IPFS swarm.
 
 **Collection Token Staking:**
@@ -734,24 +669,15 @@ Pinners are incentivized to monitor the blockchain for new escrow accounts and p
 - Pinners who consistently provide fast, valid CID reveals build on-chain reputation, attracting more purchase traffic.
 - If no pinner reveals the CID within 24 hours, the escrow burns and no one earns—creating urgency for pinners to act.
 
-**NFT-Based Access Verification:**
+**Pinner Verification & Download:**
 
-Before serving any content, pinners enforce strict access control at the peer-to-peer layer:
+- **Discovery:** The client locates peers hosting the content via the IPFS DHT.
 
-1. **Connection Handshake:** When a purchaser's IPFS node connects to a pinner's node, the purchaser must present a signed access proof message containing their wallet address, collection identifier, Access NFT reference, and a current timestamp.
+- **Authenticated Connection:** The client initiates a connection to these peers, presenting the Access NFT as proof of payment.
 
-2. **Pinner Verification Steps:**
-   - **Signature Validation:** The pinner verifies the signature matches the claimed wallet address.
-   - **NFT Ownership Check:** The pinner verifies the user holds the Access NFT by querying the Solana blockchain. If the wallet does not hold the token, the connection is dropped.
-   - **NFT Metadata Verification:** The pinner ensures the NFT's metadata matches the requested collection identifier.
-   - **Timestamp Freshness:** The pinner rejects proofs older than 5 minutes to prevent replay attacks.
-   - **Escrow Validation (Optional):** The pinner may cross-check that an escrow account exists or existed for this purchaser and collection pair.
+- **Verification:** Pinners verify the NFT ownership on-chain. Valid requests are added to an allowlist; invalid requests are rejected to save bandwidth.
 
-4. **Access Decision:**
-   - **If all checks pass:** Pinner adds the purchaser to an allowlist and serves content blocks via IPFS Bitswap.
-   - **If any check fails:** Pinner rejects the connection, logs the unauthorized attempt, and does not serve content.
-
-3. **Caching & Performance:** To minimize blockchain query load, pinners cache NFT verification results for approximately 30 seconds. Subsequent block requests from the same wallet within this window are served without re-verification.
+- **Monitoring:** The client downloads the content while tracking performance (speed/reliability) of each peer to determine who receives the escrowed payment.
 
 **The Trust-Based Payment Model:**
 
@@ -759,11 +685,10 @@ The buyer is the ultimate arbiter of which peers deserve payment. This creates s
 
 - **CID Acquisition:** After a pinner reveals the encrypted CID and the purchaser verifies it (as described in 4.2), the client has the authentic collection CID and can fetch the manifest.
 - **Discovery:** The Purchaser's client uses the IPFS DHT (Distributed Hash Table) to find peers hosting the individual video CIDs listed in the collection manifest.
-- **NFT Presentation:** For each discovered peer, the purchaser's client sends the signed NFT proof message. Only peers that accept the proof (after verification) will serve content.
 - **Connection & Monitoring:** The Purchaser's IPFS Check Tool actively monitors the data stream via the Bitswap protocol. It logs granular accounting data:
   - Peer ID X sent 500MB (Blocks 1-5000).
   - Peer ID Y sent 200MB (Blocks 5001-7000).
-  - Peer ID Z connected but sent 0MB (Timed out or rejected NFT proof).
+  - Peer ID Z connected but sent 0MB (Timed out or rejected access proof).
 - **Client Decision:** Upon download completion (or sufficient streaming buffer), the client algorithmically determines that Peer X and Peer Y are valid earners based on "Useful Bytes Delivered."
 - **Buyer-Controlled Settlement:**
   - The purchaser's client constructs a transaction to release escrow funds, containing the list of valid peer wallets and their respective payment weights based on actual bytes delivered.
@@ -833,14 +758,31 @@ This staking mechanism creates several powerful incentives:
 - **Passive Income:** Creators who hold their initial 10% allocation can stake it to earn ongoing revenue beyond the initial token distribution.
 - **Price Support:** By locking tokens in staking pools, circulating supply is reduced, creating upward price pressure that benefits all token holders.
 
-### 4.5 Copyright Claims
+### 4.5 Copyright Claims & Content Censorship
 
-- **Dispute:** A third party realizes a collection violates their IP.
-- **Submission:** They submit a copyright claim ticket via the client, attaching off-chain proof (e.g., links to original verified social media).
-- **Moderation:** Staked Moderators review the claim. They compare the timestamp of the blockchain record against the provided evidence.
-- **Resolution:**
-  - **If Approved:** The 10% tokens sitting in the Claim Vault are immediately transferred to the Claimant's wallet. The Claimant effectively becomes a major stakeholder in the collection.
-  - **If Expired:** If 6 months pass without a valid claim, any user can submit a transaction to burn the unclaimed tokens. This burns the tokens in the vault, permanently reducing the total supply.
+This workflow handles IP disputes, allowing rights holders to claim revenue and moderators to suppress illegal content within an immutable collection.
+
+**The Dispute Process:**
+
+- **Submission:** A claimant submits a CopyrightClaim ticket, identifying specific video indices (e.g., Video #3 and #4) within a collection they own rights to.
+- **Moderation Review:** Staked Moderators verify the evidence (timestamps, verified social media).
+
+**Resolution - Financial (Proportional Claim):**
+
+- **Calculation:** The protocol calculates the claimable amount: (Total_Vault_Tokens / Total_Videos_In_Collection) * Claimed_Video_Count.
+- **Transfer:** The calculated amount is transferred from the Claim Vault to the Claimant's wallet.
+- **State Update:** The specific video indices are marked as "Claimed" on-chain to prevent double-payouts.
+
+**Resolution - Content (Censorship):**
+
+- **Censorship Request:** If the claimant (or a moderator reviewing illegal content) requests removal, the censored_bitmap in the CollectionState is updated.
+- **Bitmasking:** Because the Collection Manifest is immutable and cannot be edited to remove a video, the protocol toggles a "Censored" bit for that specific video index on-chain.
+
+**Enforcement:**
+
+- **Indexer Level:** The API filters out metadata for censored indices.
+- **Client Level:** The client refuses to resolve CIDs or play content for censored indices.
+- **Pinner Level:** Honest pinners stop serving blocks associated with that specific video CID.
 
 ## 5. Off-Chain Indexer API
 
@@ -921,14 +863,15 @@ pub struct GlobalState {
 #[account]
 pub struct CollectionState {
     pub owner: Pubkey,               // The original creator
-    pub collection_id: String,       // Unique slug (e.g., "cooking-101")
-    pub cid_hash: [u8; 32],          // SHA-256 hash of the collection IPFS CID (not the CID itself)
-    pub mint: Pubkey,                // The Collection Token Mint address
-    pub pool_address: Pubkey,        // The specific Orca Whirlpool/Pool Address
+    pub collection_id: String,       // Unique slug
+    pub cid_hash: [u8; 32],          // Immutable SHA-256 hash of the manifest
+    pub total_videos: u16,           // Fixed number of videos (required for proportional math)
+    pub claimed_bitmap: Vec<u8>,     // Bitmask tracking which videos have paid out claims
+    pub censored_bitmap: Vec<u8>,    // Bitmask tracking which videos are hidden
+    pub mint: Pubkey,                // The Collection Token Mint
+    pub pool_address: Pubkey,        // Orca Pool
     pub claim_vault: Pubkey,         // PDA holding the 10% reserve
     pub claim_deadline: i64,         // Timestamp (Now + 6 months)
-    pub total_trust_score: u64,      // Aggregate reliability of this collection's swarm
-    pub is_blacklisted: bool,        // Moderator toggle for illegal content
     pub bump: u8,
 }
 ```
@@ -1270,3 +1213,94 @@ Returns a paginated list of all collections.
   }
 }
 ```
+
+### Appendix D: Access Token Specification
+
+This appendix provides the complete technical specification for the Access NFT system used for peer-to-peer access control.
+
+#### D.1 Token Standard
+
+The protocol utilizes the **Solana Token-2022 standard** with the **Non-Transferable Extension**. This enforces wallet-binding at the protocol level, making it cryptographically impossible to transfer, sell, or gift access tokens.
+
+**Technical Details:**
+- **Mint Configuration:** 1 token supply, 0 decimals, non-divisible
+- **Extension:** Token-2022 Non-Transferable extension enabled
+- **Metadata:** Stored via Metaplex Token Metadata program
+- **Freeze Authority:** Retained by the protocol for moderation purposes
+
+#### D.2 Minting Process
+
+When a user purchases access, the following occurs atomically:
+
+1. A unique NFT mint account is created using Token-2022 with Non-Transferable extension.
+2. One (1) token is minted to the purchaser's wallet.
+3. The NFT mint address is stored in the `AccessEscrow.access_nft_mint` field.
+4. Metadata is attached including:
+   - `collection`: The collection ID this NFT grants access to
+   - `purchaser`: The wallet that owns access rights
+   - `purchased_at`: Timestamp of purchase
+5. The protocol retains freeze authority on the mint to enable moderation.
+
+#### D.3 Security Properties
+
+**Anti-Resale:** Because the token cannot be transferred, secondary markets for "used" access passes are mathematically impossible. This ensures:
+- Users cannot sell access to third parties
+- Every viewer must purchase their own access
+- Creators capture full value from each sale
+
+**Sybil Resistance:** Since every access token requires a real economic swap on Orca, creating fake accounts to spam pinners is cost-prohibitive. Each purchase is permanently bound to the original purchaser's wallet.
+
+**Wallet Compromise Protection:** Even if a wallet's private key is stolen, the NFT cannot be moved to another wallet. The only way to "transfer" access would be for the original purchaser to share their wallet's private key (which defeats the purpose and is easily detectable).
+
+**Freeze Authority:** The protocol maintains freeze authority on these mints, allowing for immediate access revocation in cases of TOS violations without needing to blacklist wallet addresses manually. Freezing or burning a non-transferable NFT immediately revokes access with no recovery path.
+
+**Persistent Proof:** Unlike escrow accounts which expire after 24 hours, Access NFTs remain as permanent receipts, enabling long-term access verification.
+
+#### D.4 Pinner Verification Protocol
+
+**On-Chain Verification Steps:**
+
+1. **Ownership Query:** Pinners query the Solana blockchain to check if the purchaser's wallet holds the Access NFT for the specified mint address.
+2. **Validation:** The pinner ensures the purchaser's wallet holds exactly 1 token of the NFT mint.
+3. **Metadata Verification:** The pinner ensures the NFT's metadata matches the requested collection identifier.
+4. **Timestamp Freshness:** The pinner rejects proofs older than 5 minutes to prevent replay attacks.
+5. **Caching:** Verification results can be cached for approximately 30 seconds to reduce blockchain query load.
+6. **Fallback:** If the blockchain query fails, pinners can accept connections but flag them for manual review.
+
+**Handshake Message Structure:**
+
+The purchaser signs a message containing:
+- `wallet_address`: The purchaser's wallet address
+- `collection_id`: The collection identifier
+- `access_nft_mint`: The Access NFT mint address
+- `timestamp`: Current Unix timestamp
+- `signature`: Ed25519 signature by wallet's private key
+
+#### D.5 Why NFTs Instead of Escrow-Only Verification?
+
+While pinners could theoretically verify access by checking for an `AccessEscrow` account, NFTs provide several advantages:
+
+- **Persistent Proof:** Escrows expire/close after 24 hours, but NFTs remain as permanent receipts.
+- **Standard Interface:** NFTs use Token-2022 standards, allowing wallets and explorers to display access rights.
+- **True Non-Transferability:** Token-2022's Non-Transferable extension provides cryptographic enforcement that cannot be bypassed, unlike policy-based restrictions.
+- **Offline Verification:** Pinners can verify NFT ownership without querying custom PDA structures.
+- **Freeze & Burn Capability:** The protocol retains freeze/burn authority for moderation purposes.
+
+#### D.6 Economic Benefits
+
+**Fair Creator Revenue:** Every viewer must purchase their own access, eliminating "group buy" schemes where one purchase is shared among many users.
+
+**Anti-Piracy Enforcement:** Even if someone obtains the collection CID, they cannot access content from pinners without the non-transferable NFT bound to their wallet.
+
+**Regulatory Compliance:** Non-transferability helps avoid classification as a security, as the NFT has no investment value or speculative market.
+
+**Audit Trail:** Each access NFT creates a permanent, immutable record of who purchased access and when, useful for analytics and compliance.
+
+**Moderation Effectiveness:** Freezing or burning a non-transferable NFT immediately revokes access with no recovery path (user can't transfer to a new wallet).
+
+#### D.7 Expiration & Time-Based Access
+
+While NFTs have no inherent expiration, pinners can enforce time-based access by:
+- Checking the `purchased_at` timestamp in the NFT metadata
+- Refusing service after a configurable period (e.g., 90 days)
+- This allows for subscription-like models while maintaining permanent on-chain records
