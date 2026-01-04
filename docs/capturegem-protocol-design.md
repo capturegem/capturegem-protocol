@@ -12,7 +12,7 @@ The protocol introduces a novel "Trust-Based Delivery" mechanism that fundamenta
 
 A pinner who hosts the collection then sends an encrypted message to the purchaser's wallet on-chain, containing the real CID encrypted with the purchaser's public key. The purchaser decrypts this using their private wallet key and verifies the hash matches their commitment, ensuring authenticity. The collection CID itself is a manifest document containing the CIDs of all individual videos, unlocking the entire collection with a single purchase.
 
-The payment is split: 50% flows to a staking pool where collection token holders earn rewards, and 50% is held in escrow. This escrowed payment is only released to storage providers (IPFS Peers) once the purchaser's client confirms the content was successfully delivered—and critically, the buyer determines which peers deserve payment based on actual performance. If the buyer does not disburse funds within 24 hours, the escrowed tokens are automatically burned, creating deflationary pressure. This ensures a meritocratic network where high-performance nodes build on-chain Trust Scores, creating a feedback loop where quality service is algorithmically rewarded with higher earning potential.
+The payment is processed as follows: first, a protocol fee (default 2%, configurable) is deducted and sent to the protocol treasury. The remaining amount is split: 50% flows to a staking pool where collection token holders earn rewards, and 50% is held in escrow. This escrowed payment is only released to storage providers (IPFS Peers) once the purchaser's client confirms the content was successfully delivered—and critically, the buyer determines which peers deserve payment based on actual performance. If the buyer does not disburse funds within 24 hours, the escrowed tokens are automatically burned, creating deflationary pressure. This ensures a meritocratic network where high-performance nodes build on-chain Trust Scores, creating a feedback loop where quality service is algorithmically rewarded with higher earning potential.
 
 Additionally, the protocol embeds intellectual property protection at the tokenomic level. A portion of every collection's supply is reserved in a "Claim Vault" for potential copyright disputes. This ensures that true rights holders have a path to monetization even if they were not the initial uploaders, solving a critical pain point in decentralized content distribution where anonymity can often shield infringement.
 
@@ -474,9 +474,34 @@ If a collection needs schema updates (e.g., adding new videos), the creator:
 - **Purpose:** To protect against IP theft and "Copyright Trolling." If a user uploads stolen content, the true owner has a window of opportunity to prove ownership and claim this 10% reserve, effectively taking a significant ownership stake in the pirated collection.
 - **Expiration & Deflation:** If no valid claim is processed within 6 months of minting, a permissionless instruction `burn_unclaimed_tokens` can be called by anyone. This permanently burns the 10% supply, creating a deflationary event that benefits all existing holders by reducing total supply while demand remains constant.
 
+**D. Protocol Fee (Treasury Revenue)**
+
+- **Fee Structure:** All purchases and sales of collection tokens are subject to a protocol fee, configurable via `GlobalState.fee_basis_points`. The default fee is 2% (200 basis points).
+- **Fee Collection:** The fee is deducted from the purchase amount before the 50/50 split between collection token stakers and peer escrow. The fee is sent directly to the protocol treasury, providing sustainable revenue for protocol maintenance, development, and operations.
+- **Configurability:** The protocol admin can update the fee percentage via the `update_global_state` instruction, allowing the protocol to adapt to changing economic conditions. The fee cannot exceed 100% (10,000 basis points).
+- **Economic Rationale:** This fee ensures the protocol has a sustainable revenue model independent of token appreciation, funding ongoing infrastructure costs, security audits, and protocol improvements.
+
 ### 3.2 Program Derived Addresses (PDAs)
 
-**A. Collection State**
+**A. Global State**
+
+Stores protocol-wide configuration and parameters that govern the entire system, including fee settings, treasury address, and moderator requirements.
+
+```rust
+struct GlobalState {
+    admin: Pubkey,                    // Protocol administrator
+    treasury: Pubkey,                 // Treasury account that receives protocol fees
+    indexer_api_url: String,          // URL for the off-chain indexer API
+    node_registry_url: String,        // URL for the node registry
+    moderator_stake_minimum: u64,     // Minimum CAPGM stake required to be a moderator
+    capgm_mint: Pubkey,               // The CAPGM ecosystem token mint
+    fee_basis_points: u16,            // Purchase fee in basis points (default: 200 = 2%)
+    updates_disabled: bool,           // One-way lock to prevent future updates
+    bump: u8,
+}
+```
+
+**B. Collection State**
 
 Stores the immutable metadata, pool references, and claim timers required for protocol operation. Notably, the collection stores only the SHA-256 hash of the IPFS CID—not the CID itself—ensuring content addresses remain private and can only be revealed by authorized pinners to verified purchasers.
 
@@ -495,7 +520,7 @@ struct CollectionState {
 }
 ```
 
-**B. Access Escrow**
+**C. Access Escrow**
 
 A temporary holding account created when a user purchases access but hasn't finished downloading. This is the core component of the "Trust-Based" payment model. The escrow has a 24-hour expiration window, after which unclaimed funds are burned. Critically, the escrow stores only the SHA-256 hash of the collection CID—never the CID itself—ensuring that content addresses remain private until revealed by an authorized pinner. Additionally, the escrow links to the Access NFT that serves as the cryptographic proof of purchase.
 
@@ -512,7 +537,7 @@ struct AccessEscrow {
 }
 ```
 
-**B.1 CID Reveal**
+**C.1 CID Reveal**
 
 Stores the encrypted CID message sent by a pinner to the purchaser. Only the purchaser can decrypt this message using their wallet's private key.
 
@@ -526,7 +551,7 @@ struct CidReveal {
 }
 ```
 
-**C. Peer Trust State**
+**D. Peer Trust State**
 
 Tracks the historical reliability of a specific node (Peer). This is a persistent on-chain reputation identity.
 
@@ -699,16 +724,19 @@ struct StakerPosition {
 
 Unlike traditional models where payment goes directly to a creator, CaptureGem directs payment liquidity to the market (supporting the token price) and then splits it between collection token holders and infrastructure providers (Peers).
 
-**Payment Distribution:** When a user purchases access to a collection, the payment is split as follows:
-- **50% → Collection Ownership Pool:** This portion flows to a staking pool where collection token holders can stake their tokens to earn rewards. This creates a direct incentive for token holders to support and promote their collections.
-- **50% → Peers Escrow:** This portion is locked in an `AccessEscrow` PDA and distributed to IPFS peers who successfully deliver the content, enforcing the Trust-Based payment model.
+**Payment Distribution:** When a user purchases access to a collection, the payment is processed as follows:
+- **Protocol Fee (2% default):** First, a configurable protocol fee (default 2%, or 200 basis points) is deducted from the purchase amount and sent to the protocol treasury. This fee is set via `GlobalState.fee_basis_points` and can be updated by the protocol admin.
+- **Remaining Amount Split (50/50):** After the fee deduction, the remaining amount is split equally:
+  - **50% → Collection Ownership Pool:** This portion flows to a staking pool where collection token holders can stake their tokens to earn rewards. This creates a direct incentive for token holders to support and promote their collections.
+  - **50% → Peers Escrow:** This portion is locked in an `AccessEscrow` PDA and distributed to IPFS peers who successfully deliver the content, enforcing the Trust-Based payment model.
 
 **Purchase Flow:**
 
 - **Initiate Purchase:** The user clicks "Watch" or "Buy Access" in the client. The UI displays collection metadata (title, preview, price) but crucially **not** the actual IPFS CID, which remains private until after purchase.
 - **CID Hash Commitment:** The client constructs the purchase transaction including the SHA-256 hash of the collection CID. This hash is publicly known (displayed in the collection listing) but reveals nothing about the actual content address. The purchaser's wallet public key is included for encrypted CID delivery.
 - **DEX Swap:** The client executes a transaction that swaps the user's CAPGM for Collection Tokens via the Orca Pool. This buy pressure increases the value of the creator's held tokens.
-- **Payment Split:** The purchased tokens are split automatically:
+- **Protocol Fee Collection:** A protocol fee (default 2%, configurable via `GlobalState.fee_basis_points`) is deducted from the purchase amount and transferred to the protocol treasury.
+- **Payment Split:** After fee deduction, the remaining tokens are split automatically:
   - 50% is transferred to the Collection Ownership Staking Pool where token stakers earn proportional rewards.
   - 50% is locked in an `AccessEscrow` PDA (with the `cid_hash` stored), awaiting content delivery confirmation.
 - **Access NFT Minting:** Atomically with the escrow creation, an Access NFT is minted:
