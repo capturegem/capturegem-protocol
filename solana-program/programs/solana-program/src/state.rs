@@ -86,14 +86,6 @@ impl CollectionState {
 }
 
 #[account]
-pub struct ViewRights {
-    pub owner: Pubkey,
-    pub collection: Pubkey,
-    pub minted_at: i64,    // Unix timestamp when minted/renewed
-    pub expires_at: i64,   // Unix timestamp when access expires (minted_at + 90 days)
-}
-
-#[account]
 pub struct AccessEscrow {
     pub purchaser: Pubkey,       // The user buying content (only they can release funds)
     pub collection: Pubkey,       // The content being bought

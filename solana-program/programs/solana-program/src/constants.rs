@@ -11,9 +11,6 @@ pub const SEED_USER_ACCOUNT: &[u8] = b"user_account";
 pub const SEED_COLLECTION_STATE: &[u8] = b"collection_state";
 
 #[constant]
-pub const SEED_VIEW_RIGHT: &[u8] = b"view_right";
-
-#[constant]
 pub const SEED_PINNER_BOND: &[u8] = b"host_bond";
 
 #[constant]
@@ -39,7 +36,6 @@ pub const SEED_MODERATOR_STAKING_VAULT: &[u8] = b"moderator_staking_vault";
 
 // Time Constants
 pub const SECONDS_IN_DAY: i64 = 86400;
-pub const VIEW_RIGHTS_VALIDITY_SECONDS: i64 = 90 * SECONDS_IN_DAY; // 90 Days
 pub const CLAIM_VAULT_VESTING_SECONDS: i64 = 6 * 30 * SECONDS_IN_DAY; // 6 months
 pub const ESCROW_EXPIRY_SECONDS: i64 = 24 * 3600; // 24 hours
 

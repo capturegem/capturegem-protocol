@@ -70,13 +70,6 @@ export const getMintPDA = (collection: PublicKey): [PublicKey, number] => {
   );
 };
 
-export const getViewRightsPDA = (payer: PublicKey, collection: PublicKey): [PublicKey, number] => {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("view_right"), payer.toBuffer(), collection.toBuffer()],
-    program.programId
-  );
-};
-
 export const getPinnerStatePDA = (pinner: PublicKey, collection: PublicKey): [PublicKey, number] => {
   return PublicKey.findProgramAddressSync(
     [Buffer.from("host_bond"), pinner.toBuffer(), collection.toBuffer()],
