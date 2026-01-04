@@ -595,13 +595,14 @@ export class ModerationClient {
 
   /**
    * Resolve a CID censorship ticket (moderator only)
-   * Censors a specific CID in a collection
+   * Censors a specific CID in a collection by updating the on-chain censored_bitmap
    * 
    * @param ticketPubkey - CID censorship ticket PDA
    * @param moderatorKeypair - Moderator's keypair
    * @param collectionPubkey - Collection containing the CID
    * @param verdict - true = censor CID, false = keep CID
-   * @param cid - The CID being censored
+   * @param cid - The CID being censored (for event logging)
+   * @param videoIndex - The index of the video in the collection (0-based)
    * @returns Transaction signature
    */
   async resolveCidCensorship(
@@ -609,7 +610,8 @@ export class ModerationClient {
     moderatorKeypair: Keypair,
     collectionPubkey: PublicKey,
     verdict: boolean,
-    cid: string
+    cid: string,
+    videoIndex: number
   ): Promise<string> {
     console.log(`${verdict ? "🚫" : "✅"} Resolving CID censorship ticket...`);
 
@@ -622,10 +624,11 @@ export class ModerationClient {
 
     console.log(`   Moderator: ${moderatorKeypair.publicKey.toBase58().slice(0, 8)}...`);
     console.log(`   CID: ${cid}`);
+    console.log(`   Video Index: ${videoIndex}`);
     console.log(`   Verdict: ${verdict ? "CENSOR" : "KEEP"}`);
 
     const tx = await this.program.methods
-      .resolveCidCensorship(verdict, cid)
+      .resolveCidCensorship(verdict, cid, videoIndex)
       .accountsPartial({
         moderator: moderatorKeypair.publicKey,
         globalState: await this.getGlobalStatePDA(),

@@ -27,9 +27,18 @@ pub mod solana_program {
         name: String, 
         cid_hash: [u8; 32],
         access_threshold_usd: u64,
-        total_videos: u16
+        total_videos: u16,
+        performer_share_percent: Option<u8>
     ) -> Result<()> {
-        instructions::user::create_collection(ctx, collection_id, name, cid_hash, access_threshold_usd, total_videos)
+        instructions::user::create_collection(
+            ctx, 
+            collection_id, 
+            name, 
+            cid_hash, 
+            access_threshold_usd, 
+            total_videos,
+            performer_share_percent
+        )
     }
 
     pub fn mint_collection_tokens(
@@ -171,9 +180,10 @@ pub mod solana_program {
     pub fn resolve_cid_censorship(
         ctx: Context<ResolveCidCensorship>,
         verdict: bool,
-        censored_cid: String
+        censored_cid: String,
+        video_index: u16
     ) -> Result<()> {
-        instructions::moderation::resolve_cid_censorship(ctx, verdict, censored_cid)
+        instructions::moderation::resolve_cid_censorship(ctx, verdict, censored_cid, video_index)
     }
 
     pub fn initialize_orca_pool(

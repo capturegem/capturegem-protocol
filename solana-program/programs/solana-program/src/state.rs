@@ -44,7 +44,7 @@ pub struct CollectionState {
     pub cid_hash: [u8; 32],  // SHA-256 hash of the collection IPFS CID (not the CID itself)
     pub mint: Pubkey,        // The Collection Token Mint address
     pub pool_address: Pubkey, // The specific Orca Whirlpool/Pool Address
-    pub claim_vault: Pubkey,  // PDA holding the 10% reserve
+    pub claim_vault: Pubkey,  // PDA holding the configured share reserve
     pub claim_deadline: i64,  // Timestamp (Now + 6 months)
     pub total_trust_score: u64, // Aggregate reliability of this collection's swarm
     pub is_blacklisted: bool,  // Moderator toggle for illegal content
@@ -60,10 +60,13 @@ pub struct CollectionState {
     
     // Proportional Copyright Claims
     pub total_videos: u16,                // Total videos in collection (e.g., 10)
-    pub claim_vault_initial_amount: u64,  // The original 10% amount (set during mint)
+    pub claim_vault_initial_amount: u64,  // The original amount reserved for claims (set during mint)
     pub claimed_bitmap: Vec<u8>,          // Bitmask: 1 = claimed, 0 = unclaimed
     pub censored_bitmap: Vec<u8>,         // Bitmask: 1 = censored, 0 = active
     
+    // Configurable Shares
+    pub claim_share_percent: u8, // Percentage of supply reserved for claim vault (default 10)
+
     pub bump: u8,
 }
 
@@ -74,9 +77,10 @@ impl CollectionState {
     // + 8 (owner_reward_balance) + 8 (staker_reward_balance)
     // + 1 (tokens_minted) + 2 (total_videos) + 8 (claim_vault_initial_amount)
     // + 4 (claimed_bitmap length) + 4 (censored_bitmap length)
+    // + 1 (claim_share_percent)
     // + 1 (bump)
     // Note: Bitmap vectors are variable-length and space is calculated dynamically in create_collection
-    pub const BASE_SIZE: usize = 8 + 32 + MAX_ID_LEN + 32 + 32 + 32 + 32 + 8 + 8 + 1 + MAX_NAME_LEN + MAX_URL_LEN + 8 + 32 + 8 + 8 + 1 + 2 + 8 + 4 + 4 + 1;
+    pub const BASE_SIZE: usize = 8 + 32 + MAX_ID_LEN + 32 + 32 + 32 + 32 + 8 + 8 + 1 + MAX_NAME_LEN + MAX_URL_LEN + 8 + 32 + 8 + 8 + 1 + 2 + 8 + 4 + 4 + 1 + 1;
     // Legacy MAX_SIZE kept for backward compatibility, but actual space calculation is done dynamically
     pub const MAX_SIZE: usize = BASE_SIZE;
 }
@@ -166,7 +170,7 @@ impl ModTicket {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TicketType {
     ContentReport,   // Flagging illegal or TOS-violating content
-    CopyrightClaim, // IP disputes - transfers 10% Claim Vault tokens to claimant
+    CopyrightClaim, // IP disputes - transfers proportional Claim Vault tokens to claimant
     CidCensorship,   // Censoring specific CIDs - reimburses stakeholders from collection pools
 }
 

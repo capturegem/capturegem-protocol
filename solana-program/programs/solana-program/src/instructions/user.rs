@@ -8,7 +8,7 @@ use spl_token_2022::extension::ExtensionType;
 use spl_token_2022::instruction::initialize_mint;
 
 #[derive(Accounts)]
-#[instruction(collection_id: String, name: String, cid_hash: [u8; 32], access_threshold_usd: u64, total_videos: u16)]
+#[instruction(collection_id: String, name: String, cid_hash: [u8; 32], access_threshold_usd: u64, total_videos: u16, performer_share_percent: Option<u8>)]
 pub struct CreateCollection<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
@@ -31,7 +31,7 @@ pub struct CreateCollection<'info> {
     #[account(mut)]
     pub pool_address: UncheckedAccount<'info>,
 
-    /// CHECK: Claim vault token account (PDA that will hold 10% of tokens)
+    /// CHECK: Claim vault token account (PDA that will hold reserve tokens)
     #[account(mut)]
     pub claim_vault: UncheckedAccount<'info>,
 
@@ -69,6 +69,7 @@ pub fn create_collection(
     cid_hash: [u8; 32],
     access_threshold_usd: u64,
     total_videos: u16,
+    performer_share_percent: Option<u8>,
 ) -> Result<()> {
     require!(collection_id.len() <= MAX_ID_LEN, ProtocolError::StringTooLong);
     require!(name.len() <= MAX_NAME_LEN, ProtocolError::StringTooLong);
@@ -79,6 +80,11 @@ pub fn create_collection(
         ctx.accounts.treasury.key() == ctx.accounts.global_state.treasury,
         ProtocolError::Unauthorized
     );
+
+    // Validate config: Creator share is fixed at 10%, Claim Share + Creator Share must be <= 100%
+    // We reserve at least 1% for liquidity for technical sanity
+    let claim_share = performer_share_percent.unwrap_or(10);
+    require!(claim_share <= 89, ProtocolError::InvalidFeeConfig); // Ensures 10+89 <= 99, leaving >=1% for liquidity
 
     let clock = &ctx.accounts.clock;
     let collection = &mut ctx.accounts.collection;
@@ -99,6 +105,7 @@ pub fn create_collection(
     collection.content_cid = String::from(""); // Deprecated field, kept for backward compatibility
     collection.access_threshold_usd = access_threshold_usd;
     collection.oracle_feed = ctx.accounts.oracle_feed.key();
+    collection.claim_share_percent = claim_share;
     
     // Initialize reward trackers
     collection.owner_reward_balance = 0;
@@ -173,10 +180,10 @@ pub fn create_collection(
     // --- MANUAL MINT CREATION END ---
 
     msg!(
-        "CollectionCreated: ID={} Owner={} CidHashSet=true Mint={} ManualFees=ConfigurableViaGlobalState",
+        "CollectionCreated: ID={} Owner={} Share={}%",
         collection_id,
         owner_key,
-        ctx.accounts.mint.key()
+        claim_share
     );
 
     Ok(())
@@ -248,7 +255,7 @@ pub struct MintCollectionTokens<'info> {
     )]
     pub creator_token_account: InterfaceAccount<'info, TokenAccount>,
 
-    /// CHECK: Claim vault token account (PDA) to receive 10% of minted tokens
+    /// CHECK: Claim vault token account (PDA) to receive configured share (default 10%)
     /// Validated by constraint against collection.claim_vault
     #[account(
         mut,
@@ -284,9 +291,9 @@ pub struct MintCollectionTokens<'info> {
 }
 
 /// Mint collection tokens with automatic 3-way distribution:
-/// - 10% to Creator
-/// - 10% to Claim Vault (for performer/contributor claims)
-/// - 80% to Liquidity Reserve (staging area for Orca pool)
+/// - 10% to Creator (Fixed)
+/// - X% to Claim Vault (Configurable, default 10%)
+/// - Remaining% to Liquidity Reserve (staging area for Orca pool)
 /// 
 /// ⚠️ CRITICAL: This does NOT directly add liquidity to Orca!
 /// 
@@ -319,6 +326,7 @@ pub fn mint_collection_tokens(
     let collection_bump = ctx.accounts.collection.bump;
     let collection_mint = ctx.accounts.collection.mint;
     let tokens_minted = ctx.accounts.collection.tokens_minted;
+    let claim_share_percent = ctx.accounts.collection.claim_share_percent as u64;
     let mint = &ctx.accounts.mint;
 
     // ⚠️ SECURITY: Enforce one-time minting per collection
@@ -334,21 +342,35 @@ pub fn mint_collection_tokens(
         ProtocolError::Unauthorized
     );
 
-    // Calculate distribution: 80% to reserve, 10% to creator, 10% to claim vault
+    // Distribution logic:
+    // Creator: 10% (Fixed)
+    // Claim Vault: claim_share_percent (Configurable)
+    // Liquidity Reserve: 100% - 10% - claim_share_percent
+    
+    let creator_percent = 10u64;
+    let reserve_percent = 100u64
+        .checked_sub(creator_percent)
+        .ok_or(ProtocolError::InvalidFeeConfig)?
+        .checked_sub(claim_share_percent)
+        .ok_or(ProtocolError::InvalidFeeConfig)?;
+    
+    require!(reserve_percent > 0, ProtocolError::InvalidFeeConfig);
+
+    // Calculate amounts
     let reserve_amount = amount
-        .checked_mul(80)
+        .checked_mul(reserve_percent)
         .ok_or(ProtocolError::MathOverflow)?
         .checked_div(100)
         .ok_or(ProtocolError::MathOverflow)?;
 
     let creator_amount = amount
-        .checked_mul(10)
+        .checked_mul(creator_percent)
         .ok_or(ProtocolError::MathOverflow)?
         .checked_div(100)
         .ok_or(ProtocolError::MathOverflow)?;
 
     let claim_vault_amount = amount
-        .checked_mul(10)
+        .checked_mul(claim_share_percent)
         .ok_or(ProtocolError::MathOverflow)?
         .checked_div(100)
         .ok_or(ProtocolError::MathOverflow)?;
@@ -387,20 +409,22 @@ pub fn mint_collection_tokens(
     );
     anchor_spl::token_interface::mint_to(creator_cpi_ctx, creator_amount)?;
 
-    // 2. Mint 10% to claim vault
-    let vault_cpi_accounts = MintTo {
-        mint: ctx.accounts.mint.to_account_info(),
-        to: ctx.accounts.claim_vault.to_account_info(),
-        authority: collection_account_info.clone(),
-    };
-    let vault_cpi_ctx = CpiContext::new_with_signer(
-        ctx.accounts.token_program.to_account_info(),
-        vault_cpi_accounts,
-        signer
-    );
-    anchor_spl::token_interface::mint_to(vault_cpi_ctx, claim_vault_amount)?;
+    // 2. Mint configured share to claim vault
+    if claim_vault_amount > 0 {
+        let vault_cpi_accounts = MintTo {
+            mint: ctx.accounts.mint.to_account_info(),
+            to: ctx.accounts.claim_vault.to_account_info(),
+            authority: collection_account_info.clone(),
+        };
+        let vault_cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            vault_cpi_accounts,
+            signer
+        );
+        anchor_spl::token_interface::mint_to(vault_cpi_ctx, claim_vault_amount)?;
+    }
 
-    // 3. Mint 80% to liquidity reserve (staging account for Orca)
+    // 3. Mint remaining % to liquidity reserve (staging account for Orca)
     // These tokens sit here until deposit_liquidity_to_orca() is called
     let reserve_cpi_accounts = MintTo {
         mint: ctx.accounts.mint.to_account_info(),
@@ -427,10 +451,12 @@ pub fn mint_collection_tokens(
         amount
     );
     msg!(
-        "Distribution: Creator={}(10%) ClaimVault={}(10%) LiquidityReserve={}(80%)",
+        "Distribution: Creator={}(10%) ClaimVault={}({}%) LiquidityReserve={}({}%)",
         creator_amount,
         claim_vault_amount,
-        final_reserve_amount
+        claim_share_percent,
+        final_reserve_amount,
+        reserve_percent
     );
     msg!(
         "NEXT STEPS: 1) initialize_orca_pool() to create Whirlpool. 2) deposit_liquidity_to_orca() to move tokens from reserve → Orca."
@@ -461,7 +487,7 @@ pub struct BurnUnclaimedTokens<'info> {
     )]
     pub claim_vault_pda: UncheckedAccount<'info>,
 
-    /// Claim vault token account (ATA owned by claim_vault PDA) holding the 10% reserve
+    /// Claim vault token account (ATA owned by claim_vault PDA) holding the configured share reserve
     #[account(
         mut,
         constraint = claim_vault.key() == collection.claim_vault @ ProtocolError::Unauthorized,

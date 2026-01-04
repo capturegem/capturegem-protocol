@@ -13,6 +13,7 @@ pub struct CidCensorshipEvent {
     pub timestamp: i64,
     pub approved: bool,
     pub reporter: Option<Pubkey>,
+    pub video_index: u16,
 }
 
 #[derive(Accounts)]
@@ -269,13 +270,13 @@ pub fn resolve_copyright_claim(ctx: Context<ResolveCopyrightClaim>, verdict: boo
         let collection_id = collection.collection_id.clone();
         let collection_bump = ctx.bumps.collection;
         let collection_owner = collection.owner;
-        let collection_seeds = &[
-            b"collection",
+        let collection_seeds = [
+            b"collection".as_ref(),
             collection_owner.as_ref(),
             collection_id.as_bytes(),
             &[collection_bump],
         ];
-        let collection_signer = &[&collection_seeds[..]];
+        let collection_signer = &[&collection_seeds];
         
         let transfer_ix = TransferChecked {
             from: ctx.accounts.claim_vault.to_account_info(),
@@ -341,15 +342,16 @@ pub struct ResolveCidCensorship<'info> {
 }
 
 /// Resolves a CID censorship ticket by censoring a specific CID.
-/// This instruction emits blockchain logs/notes for the indexer to pick up.
+/// This instruction updates the on-chain censored_bitmap and emits blockchain logs/notes for the indexer to pick up.
 /// The indexer will use these logs to flag the CID as censored in its database.
 pub fn resolve_cid_censorship(
     ctx: Context<ResolveCidCensorship>,
     verdict: bool,
     censored_cid: String,
+    video_index: u16,
 ) -> Result<()> {
     let ticket = &mut ctx.accounts.ticket;
-    let collection = &ctx.accounts.collection;
+    let collection = &mut ctx.accounts.collection;
     let clock = &ctx.accounts.clock;
 
     // Verify this is a CID censorship ticket
@@ -362,6 +364,9 @@ pub fn resolve_cid_censorship(
         return err!(ProtocolError::TicketAlreadyResolved);
     }
 
+    // Validate the index bounds
+    require!(video_index < collection.total_videos, ProtocolError::InvalidAccount);
+
     ticket.resolved = true;
     ticket.verdict = verdict; // true = approved (censor), false = rejected
     ticket.resolver = Some(ctx.accounts.moderator.key());
@@ -369,33 +374,43 @@ pub fn resolve_cid_censorship(
     // Get collection info for logging
     let collection_id = collection.collection_id.clone();
 
-    // If approved, emit blockchain event for indexer to pick up
-    if verdict {
-        require!(
-            censored_cid.len() <= crate::state::MAX_URL_LEN,
-            ProtocolError::StringTooLong
-        );
+    // Calculate byte and bit offsets for bitmap update
+    let byte_idx = (video_index / 8) as usize;
+    let bit_idx = (video_index % 8) as u8;
 
-        // Emit blockchain event for indexer to pick up
-        emit!(CidCensorshipEvent {
-            collection_id,
-            censored_cid,
-            moderator: ctx.accounts.moderator.key(),
-            timestamp: clock.unix_timestamp,
-            approved: true,
-            reporter: Some(ticket.reporter),
-        });
+    // Ensure bitmap is large enough (safety check, though initialized in create_collection)
+    require!(
+        byte_idx < collection.censored_bitmap.len(),
+        ProtocolError::InvalidAccount
+    );
+
+    // Update the bitmap based on verdict
+    if verdict {
+        // Set the bit (Censor)
+        collection.censored_bitmap[byte_idx] |= 1 << bit_idx;
+        msg!("Video index {} marked as censored in on-chain bitmap", video_index);
     } else {
-        // Emit rejection event
-        emit!(CidCensorshipEvent {
-            collection_id,
-            censored_cid,
-            moderator: ctx.accounts.moderator.key(),
-            timestamp: clock.unix_timestamp,
-            approved: false,
-            reporter: Some(ticket.reporter),
-        });
+        // Clear the bit if verdict is false (Un-censor)
+        collection.censored_bitmap[byte_idx] &= !(1 << bit_idx);
+        msg!("Video index {} unmarked as censored in on-chain bitmap", video_index);
     }
+
+    // Validate CID string length
+    require!(
+        censored_cid.len() <= crate::state::MAX_URL_LEN,
+        ProtocolError::StringTooLong
+    );
+
+    // Emit blockchain event for indexer to pick up (both approved and rejected)
+    emit!(CidCensorshipEvent {
+        collection_id,
+        censored_cid,
+        moderator: ctx.accounts.moderator.key(),
+        timestamp: clock.unix_timestamp,
+        approved: verdict,
+        reporter: Some(ticket.reporter),
+        video_index,
+    });
 
     Ok(())
 }

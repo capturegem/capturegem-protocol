@@ -14,7 +14,7 @@ A pinner who hosts the collection then sends an encrypted message to the purchas
 
 The payment is processed as follows: first, a protocol fee (default 2%, configurable) is deducted and sent to the protocol treasury. The remaining amount is split: 50% flows to a staking pool where collection token holders earn rewards, and 50% is held in escrow. This escrowed payment is only released to storage providers (IPFS Peers) once the purchaser's client confirms the content was successfully delivered—and critically, the buyer determines which peers deserve payment based on actual performance. If the buyer does not disburse funds within 24 hours, the escrowed tokens are automatically burned, creating deflationary pressure. This ensures a meritocratic network where high-performance nodes build on-chain Trust Scores, creating a feedback loop where quality service is algorithmically rewarded with higher earning potential.
 
-Additionally, the protocol embeds intellectual property protection at the tokenomic level. A portion of every collection's supply (10%) is reserved in a "Claim Vault." If a collection contains stolen content, the rightful owners can submit proof to moderators. Upon approval, they do not seize the entire vault; instead, they receive a proportional share of tokens corresponding to the specific videos they own. This allows multiple performers to claim rights within a single collection. Simultaneously, the protocol enforces strict immutability—collections cannot be modified after minting—though individual videos can be cryptographically flagged as "Censored" by moderators to prevent their distribution without altering the underlying collection hash.
+Additionally, the protocol embeds intellectual property protection at the tokenomic level. A portion of every collection's supply (configurable, default 10%) is reserved in a "Claim Vault." If a collection contains stolen content, the rightful owners can submit proof to moderators. Upon approval, they do not seize the entire vault; instead, they receive a proportional share of tokens corresponding to the specific videos they own. This allows multiple performers to claim rights within a single collection. Simultaneously, the protocol enforces strict immutability—collections cannot be modified after minting—though individual videos can be cryptographically flagged as "Censored" by moderators to prevent their distribution without altering the underlying collection hash.
 
 ## 2. System Architecture
 
@@ -59,7 +59,8 @@ The client is designed as a "Zero-Configuration" application acting as both a me
                  │ Solana Program   │
                  └───┬──────────┬───┘
                      │          │          │
-                     │ 80%      │ 10%      │ 10%
+                     │ ~80%     │ 10%      │ Default 10%
+                     │          │          │ (Configurable)
                      ▼          ▼          ▼
             ┌─────────────┐  ┌──────────────┐  ┌──────────────┐
             │    Orca     │  │   Creator    │  │  Claim Vault │
@@ -344,13 +345,13 @@ If a collection needs schema updates (e.g., adding new videos), the creator:
 **B. Collection Tokens (Social Tokens)**
 
 - **Standard:** Token-2022 (SPL Token Extensions). We utilize this standard to ensure future extensibility, such as potential transfer hooks for secondary market royalties or confidential transfers.
-- **Liquidity Initialization (The 80/10/10 Split):** When a collection is minted, the token supply is distributed immediately to ensure instant market viability and fair incentives:
-  - **80% → Orca Liquidity Pool:** This portion is deposited into a concentrated liquidity position paired with CAPGM. This massive initial liquidity provision acts as a bonding curve, ensuring that early buyers have valid counterparties and that price discovery can happen organically without a pre-sale.
+- **Liquidity Initialization (Configurable Split):** When a collection is minted, the token supply is distributed immediately to ensure instant market viability and fair incentives:
+  - **Remainder (Default 80%) → Orca Liquidity Pool:** The remaining portion of the supply (100% minus creator share minus claim share) is deposited into a concentrated liquidity position paired with CAPGM. This massive initial liquidity provision acts as a bonding curve, ensuring that early buyers have valid counterparties and that price discovery can happen organically without a pre-sale.
   - **10% → Creator Wallet:** The initial stake for the uploader. This aligns the creator's financial success with the collection's popularity. As the token price rises due to demand, the value of this 10% holding increases.
-  - **10% → Claim Vault:** Held in a Program Derived Address (PDA) for a strict 6-month vesting period. This acts as an insurance policy against IP theft.
+  - **Configurable % (Default 10%) → Claim Vault:** A configurable percentage (default 10%) is held in a Program Derived Address (PDA) for a strict 6-month vesting period. This acts as an insurance policy against IP theft.
 
-- **Initial Liquidity Pairing Requirements:** When depositing 800,000 Collection Tokens (80% of supply) into the Orca pool, paired liquidity in CAPGM must be provided. The protocol requires the Creator to fund this initial liquidity pairing as a "Cost of Business."
-  - **Scenario:** For a collection minting 1,000,000 tokens, 800,000 tokens are allocated to the Orca pool. These tokens cannot be deposited alone; they must be paired with the quote currency (CAPGM).
+- **Initial Liquidity Pairing Requirements:** When depositing the liquidity reserve portion (default 80% of supply) into the Orca pool, paired liquidity in CAPGM must be provided. The protocol requires the Creator to fund this initial liquidity pairing as a "Cost of Business."
+  - **Scenario:** For a collection minting 1,000,000 tokens with default 10% claim share, 800,000 tokens (80%) are allocated to the Orca pool. These tokens cannot be deposited alone; they must be paired with the quote currency (CAPGM).
   - **Who Provides the CAPGM?**
     - **Option A (Adopted):** The Creator must provide the initial CAPGM (approximately $50-$100 worth). This requirement serves multiple purposes:
       - **Spam Prevention:** Creates an economic barrier to entry that prevents low-effort or spam collections from flooding the platform.
@@ -361,8 +362,8 @@ If a collection needs schema updates (e.g., adding new videos), the creator:
 
 **C. The Claim Vault & Proportional Rights**
 
-- **Purpose:** To protect against IP theft while ensuring fair compensation. The 10% Claim Vault is not a "winner-take-all" pot; it is divisible based on the number of videos in the collection.
-- **Proportional Distribution:** If a collection contains 10 videos, each video represents 1% of the total token supply (10% Vault / 10 Videos). If a performer successfully claims copyright on 3 of those videos, 3% of the total supply is transferred to them from the vault. The remaining 7% stays in the vault for other potential claimants.
+- **Purpose:** To protect against IP theft while ensuring fair compensation. The Claim Vault (Default 10%) is not a "winner-take-all" pot; it is divisible based on the number of videos in the collection.
+- **Proportional Distribution:** If a collection contains 10 videos and uses the default 10% vault, each video represents 1% of the total token supply (Claim Share % / Total Videos). If a performer successfully claims copyright on 3 of those videos, 3% of the total supply is transferred to them from the vault. The remaining 7% stays in the vault for other potential claimants.
 - **Expiration:** Any tokens remaining in the vault after the 6-month vesting period (i.e., unclaimed videos) are burned permissionlessly.
 
 **D. Protocol Fee (Treasury Revenue)**
@@ -582,15 +583,16 @@ Tracks an individual user's stake in a collection staking pool and their earned 
 - **CID Hashing:** Creator computes SHA-256 hash of the manifest CID (this hash will be stored on-chain)
 - **Initialization:** The creator submits a transaction to initialize the collection on-chain, providing:
   - A unique collection identifier (slug).
-  - The SHA-256 hash of the collection's IPFS manifest CID. The actual CID is never stored on-chain.
+  - The SHA-256 hash of the collection's IPFS manifest CID.
+  - Optional: performer_share_percent. A custom percentage (0-89%) to reserve for the Claim Vault. Defaults to 10% if omitted.
   - The creator must be actively pinning the manifest and all video content on IPFS.
 - **CID Hash Commitment:** The `cid_hash` is stored in the `CollectionState` PDA. This hash is publicly visible and used by purchasers to verify that pinners reveal the correct manifest CID. The actual content address remains private, known only to the creator and authorized pinners.
 - **Immutability Enforcement:** Upon creation, the CollectionState is marked as immutable. The cid_hash representing the content manifest cannot be updated, and videos cannot be added or removed. This guarantees that early buyers know exactly what they are investing in—the content supply is fixed.
 - **Mint & Distribute:**
   - The Program mints the total supply (e.g., 1,000,000 tokens) of the Collection Token.
   - 10% is transferred to the Creator's wallet.
-  - 10% is transferred to the Claim Vault PDA.
-  - 80% is transferred via CPI (Cross-Program Invocation) to the Orca program. The protocol atomically initializes a liquidity position. Note: The Creator must approve the transfer of the initial pairing asset (CAPGM) to fund the other side of the pool.
+  - The configured share (Default 10%) is transferred to the Claim Vault PDA.
+  - The remaining share (Default 80%) is transferred via CPI to the liquidity reserve.
 
 ### 4.2 Purchasing Access (The Escrow Flow)
 
@@ -821,13 +823,13 @@ The platform relies on decentralized moderation to handle illegal content and IP
 ### 6.2 Ticket Types
 
 - **ContentReport:** Used for flagging Illegal or TOS-violating content. Result: Blacklisting from Indexer and potentially slashing the Creator's Trust Score.
-- **CopyrightClaim:** Used for IP disputes. Result: Transfer of the 10% Claim Vault tokens to the reporter.
+- **CopyrightClaim:** Used for IP disputes. Result: Transfer of the configured Claim Vault tokens to the reporter.
 
 ### 6.3 Economic Security
 
 Moderators must stake CAPGM to rule on Copyright Claims. This introduces "Skin in the Game."
 
-- **Scenario:** If Moderators collude to approve false claims (stealing the 10% vault for themselves), they can be challenged.
+- **Scenario:** If Moderators collude to approve false claims (stealing the claim vault for themselves), they can be challenged.
 - **Slashing:** If a Super Moderator reviews the decision and finds it fraudulent, the malicious Moderators' staked CAPGM is slashed (burned or sent to treasury). This potential loss is mathematically designed to be greater than the potential gain from stealing the vault, creating a strong economic disincentive for corruption.
 
 ---
@@ -868,9 +870,10 @@ pub struct CollectionState {
     pub total_videos: u16,           // Fixed number of videos (required for proportional math)
     pub claimed_bitmap: Vec<u8>,     // Bitmask tracking which videos have paid out claims
     pub censored_bitmap: Vec<u8>,    // Bitmask tracking which videos are hidden
+    pub claim_share_percent: u8,     // Percentage of supply reserved for claim vault (default 10)
     pub mint: Pubkey,                // The Collection Token Mint
     pub pool_address: Pubkey,        // Orca Pool
-    pub claim_vault: Pubkey,         // PDA holding the 10% reserve
+    pub claim_vault: Pubkey,         // PDA holding the claim reserve
     pub claim_deadline: i64,         // Timestamp (Now + 6 months)
     pub bump: u8,
 }
